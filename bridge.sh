@@ -98,8 +98,14 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     die "Not inside a Git repository"
 fi
 
+OPENCODE_AVAILABLE=true
 if ! command -v opencode >/dev/null 2>&1; then
-    die "opencode CLI not found in PATH"
+    OPENCODE_AVAILABLE=false
+fi
+
+if [ "$OPENCODE_AVAILABLE" = false ]; then
+    json_output "no_opencode" "" "${SLUG:-}" "" "" "" "opencode CLI not found -- Claude should prompt user to proceed directly"
+    exit 10
 fi
 
 TASK_FILE=".local_task_${SLUG}.md"

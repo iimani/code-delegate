@@ -112,6 +112,17 @@ The bridge prints a JSON object as its final stdout line:
 - `fail` — OpenCode finished but test gate failed; worktree preserved for feedback
 - `error` — bridge-level failure (missing files, git errors, opencode crash)
 
+## OpenCode Not Available (Exit Code 10)
+
+If the bridge exits with code 10 and `"status": "no_opencode"`, it means the `opencode` CLI is not installed on this machine. When this happens:
+
+1. **Tell the user** that OpenCode is not available and the task cannot be delegated locally.
+2. **Ask the user**: "OpenCode isn't installed on this machine. Should I implement this myself instead?"
+3. If the user agrees, **read the task file you already wrote** (`.local_task_<slug>.md`) and implement it directly using your own tools. The spec format is designed to be readable by you as well.
+4. Clean up the task file after implementation.
+
+Do NOT silently fall back — always ask first. The user may prefer to install OpenCode or defer the task.
+
 ## Notes
 - Do not write massive blocks of code directly if this skill is available.
 - Always use the exact path `~/.claude/skills/opencode-delegate/bridge.sh` to run the tool.
