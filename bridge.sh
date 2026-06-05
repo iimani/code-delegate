@@ -25,7 +25,7 @@ die() {
 
 parse_header() {
     local file="$1" key="$2"
-    grep -m1 "^${key}:" "$file" 2>/dev/null | sed "s/^${key}:[[:space:]]*//"
+    grep -m1 "^${key}:" "$file" 2>/dev/null | sed "s/^${key}:[[:space:]]*//" || true
 }
 
 link_dependencies() {
@@ -118,17 +118,8 @@ fi
 
 if [ "${1:-}" = "--list-models" ]; then
     echo "Available Opencode models:"
-    opencode models --print-logs | tail -n +20
+    opencode models 2>/dev/null || echo "(failed to list models)"
     exit 0
-fi
-
-MODEL="${1:-}"
-if [ -n "$MODEL" ]; then
-    # Handle --model <value> syntax
-    shift
-elif ! command -v opencode >/dev/null 2>&1; then
-    json_output "no_opencode" "" "${SLUG:-}" "" "" "" "opencode CLI not found -- Claude should prompt user to proceed directly"
-    exit 10
 fi
 
 SLUG="${1:-}"
@@ -138,20 +129,9 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     die "Not inside a Git repository"
 fi
 
-OPENCODE_AVAILABLE=true
 if ! command -v opencode >/dev/null 2>&1; then
-    OPENCODE_AVAILABLE=false
-fi
-
-if [ "$OPENCODE_AVAILABLE" = false ]; then
-    json_output "no_opencode" "" "${SLUG:-}" "" "" "" "opencode CLI not found -- Claude should prompt user to proceed directly"
+    json_output "no_opencode" "" "$SLUG" "" "" "" "opencode CLI not found -- Claude should prompt user to proceed directly"
     exit 10
-fi
-
-if [ -n "$MODEL" ]; then
-    if ! echo "$MODEL" | grep -qE '^opencode/|^\w+/'; then
-        die "Invalid model format: '$MODEL'. Must be 'provider/model' (e.g., 'lmstudio/qwen/qwen3.5-9b')"
-    fi
 fi
 
 TASK_FILE=".local_task_${SLUG}.md"
@@ -161,7 +141,6 @@ TEST_EXIT_CODE=""
 
 MODE=""
 INSTRUCTION_FILE=""
-MODEL=""
 if [ -f "$FEEDBACK_FILE" ]; then
     MODE="feedback"
     INSTRUCTION_FILE="$FEEDBACK_FILE"
@@ -180,6 +159,10 @@ TEST_CMD="$(parse_header "$INSTRUCTION_FILE" "Test")"
 FILES="$(parse_header "$INSTRUCTION_FILE" "Files")"
 
 [ -n "$BRANCH" ] || die "No Branch: header found in $INSTRUCTION_FILE"
+
+if [ -n "$MODEL" ] && ! echo "$MODEL" | grep -qE '/'; then
+    die "Invalid model format: '$MODEL'. Must be 'provider/model' (e.g., 'lmstudio/qwen/qwen3.5-9b')"
+fi
 
 if [ "$MODE" = "task" ]; then
     if [ -d "$WORKTREE_PATH" ]; then
@@ -216,20 +199,23 @@ LOG_FILE="${WORKTREE_PATH}/opencode.log"
 echo "Invoking OpenCode in $WORKTREE_PATH..."
 echo "[$(date '+%H:%M:%S')] Starting OpenCode for $SLUG ($MODE mode)" > "$LOG_FILE"
 
-COMMAND="opencode run --dangerously-skip-permissions"
+CMD=(opencode run --dangerously-skip-permissions)
 if [ -n "$MODEL" ]; then
-    COMMAND="$COMMAND --model $MODEL"
+    CMD+=(--model "$MODEL")
 fi
 
+OPENCODE_EXIT=0
 if [ "$MODE" = "feedback" ]; then
-    ("$COMMAND" "Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
+    (cd "$WORKTREE_PATH" && "${CMD[@]}" "Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || true
+    OPENCODE_EXIT=${PIPESTATUS[0]}
 else
-    ("$COMMAND" "Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
+    (cd "$WORKTREE_PATH" && "${CMD[@]}" "Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || true
+    OPENCODE_EXIT=${PIPESTATUS[0]}
 fi
 
 echo "[$(date '+%H:%M:%S')] OpenCode finished (exit: $OPENCODE_EXIT)" >> "$LOG_FILE"
 
-if [ $OPENCODE_EXIT -ne 0 ]; then
+if [ "$OPENCODE_EXIT" -ne 0 ]; then
     json_output "error" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "" "" "OpenCode exited with code $OPENCODE_EXIT"
     exit $OPENCODE_EXIT
 fi

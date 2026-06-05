@@ -50,6 +50,7 @@ One sentence describing what this achieves.
 
 **Headers:**
 - `Branch:` (required) — the Git branch name to create
+- `Model:` (optional) — provider/model to use (e.g., `lmstudio/qwen/qwen3.5-9b`)
 - `Test:` (optional) — shell command to run as a test gate after implementation
 - `Files:` (optional) — comma-separated list of files the agent should touch
 
