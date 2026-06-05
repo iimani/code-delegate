@@ -162,12 +162,16 @@ elif [ "$MODE" = "feedback" ]; then
     fi
 fi
 
+TASK_CONTENT="$(cat "$INSTRUCTION_FILE")"
+
 echo "Invoking OpenCode in $WORKTREE_PATH..."
 OPENCODE_EXIT=0
 if [ "$MODE" = "feedback" ]; then
-    (cd "$WORKTREE_PATH" && opencode run "Read .local_feedback.md and apply the requested fixes directly in the workspace.") || OPENCODE_EXIT=$?
+    (cd "$WORKTREE_PATH" && opencode run --dangerously-skip-permissions \
+        "Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT") || OPENCODE_EXIT=$?
 else
-    (cd "$WORKTREE_PATH" && opencode run "Read .local_task.md and implement the requested code directly in the workspace.") || OPENCODE_EXIT=$?
+    (cd "$WORKTREE_PATH" && opencode run --dangerously-skip-permissions \
+        "Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT") || OPENCODE_EXIT=$?
 fi
 
 if [ $OPENCODE_EXIT -ne 0 ]; then
