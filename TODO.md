@@ -2,6 +2,49 @@
 
 ## Planned Features
 
+### 1. Support provider selection with fallback
+
+Add capability for users to select a provider delegate during runtime, with automatic fallback if the picked provider is unavailable.
+
+**Requirements:**
+- Prompt user for provider selection (similar to model picker)
+- Auto-detect available providers (test connectivity)
+- If selected provider is unavailable, prompt for fallback provider
+- Option to let Claude auto-select fallback
+- Support `Provider:` header in task files for overrides
+
+**Implementation notes:**
+- Store selected providers in config
+- Add health check function for each provider
+- Add fallback logic in bridge execution flow
+- Update task file format to include `Provider:` header
+
+### 2. Support Codex and other models for cheaper implementation
+
+Support delegating implementation tasks to other Claude Code models (not just OpenCode):
+
+**Requirements:**
+- Connect to Codex CLI (OpenAI's terminal agent) for cheaper compute
+- Implement Codex adapter in bridge.sh
+- Support switching between models based on task complexity/cost
+- Provide adapter layer for different delegate types in bridge.sh
+
+**Config additions:**
+```json
+{
+  "codex": {
+    "provider": "codex",
+    "model": "openai/gpts-lite"
+  }
+}
+```
+
+**Tasks:**
+1. Test Codex CLI availability and installation
+2. Design Codex adapter for bridge.sh
+3. Add Codex to provider selection menu
+4. Implement cost-aware model selection logic
+
 ### Delegate to Claude subagents as alternative backend
 When OpenCode/LM Studio is unavailable or when a task requires higher reasoning capability,
 the bridge should support delegating to Claude models (Sonnet/Haiku) via the Anthropic API
