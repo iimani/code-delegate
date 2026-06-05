@@ -92,15 +92,19 @@ run_test_gate() {
 
 # Monitors an opencode process for stalls, failure loops, and wall-clock timeout.
 # Kills $pid and writes a reason to $abort_file if any limit is triggered.
+is_alive() { kill -0 "$1" 2>/dev/null; }
+
 start_watcher() {
     local pid="$1" log="$2" wall_timeout="$3" max_fails="$4" fail_pattern="$5" abort_file="$6"
     (
         elapsed=0
         last_size=0
         stall_elapsed=0
-        while kill -0 "$pid" 2>/dev/null; do
-            sleep 30
-            elapsed=$((elapsed + 30))
+        while is_alive "$pid"; do
+            sleep 10
+            # Re-check after sleep — process may have exited while we slept
+            is_alive "$pid" || break
+            elapsed=$((elapsed + 10))
 
             # Wall-clock timeout
             if [ "$elapsed" -ge "$wall_timeout" ]; then
@@ -113,7 +117,7 @@ start_watcher() {
             # Stall detection — no log growth
             cur_size=$(wc -c < "$log" 2>/dev/null | tr -d ' ' || echo 0)
             if [ "$cur_size" -eq "$last_size" ]; then
-                stall_elapsed=$((stall_elapsed + 30))
+                stall_elapsed=$((stall_elapsed + 10))
                 if [ "$stall_elapsed" -ge "$STALL_SECONDS" ]; then
                     echo "[BRIDGE] $(date '+%H:%M:%S') Stall: no log activity for ${STALL_SECONDS}s" >> "$log"
                     echo "stall: no activity for ${STALL_SECONDS}s" > "$abort_file"
@@ -125,9 +129,10 @@ start_watcher() {
                 last_size=$cur_size
             fi
 
-            # Failure loop detection
+            # Failure loop detection — strip ANSI codes before counting
             if [ -n "$fail_pattern" ] && [ "$max_fails" -gt 0 ]; then
-                fail_count=$(grep -cE "$fail_pattern" "$log" 2>/dev/null || echo 0)
+                fail_count=$(sed 's/\x1b\[[0-9;]*m//g' "$log" 2>/dev/null | grep -cE "$fail_pattern" 2>/dev/null || echo 0)
+                fail_count=$(echo "$fail_count" | tr -d '[:space:]')
                 if [ "$fail_count" -ge "$max_fails" ]; then
                     echo "[BRIDGE] $(date '+%H:%M:%S') Loop: $fail_count failures detected (limit $max_fails)" >> "$log"
                     echo "loop: $fail_count failures matching '${fail_pattern}'" > "$abort_file"
