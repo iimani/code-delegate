@@ -1,11 +1,14 @@
 #!/bin/bash
 # ~/.claude/skills/opencode-delegate/bridge.sh
-# Parallel worktree execution bridge for the opencode-delegate skill
+# Parallel worktree execution bridge for the opencode-delegate skill with model selection
 #
 # Usage:
-#   bridge.sh <slug>              Run task or feedback for the given branch slug
-#   bridge.sh --status            List active agent worktrees
-#   bridge.sh --cleanup <slug>    Remove a worktree after branch is approved
+#   bridge.sh <slug>                    Run task or feedback for the given branch slug
+#   bridge.sh --status                  List active agent worktrees
+#   bridge.sh --cleanup <slug>          Remove a worktree after branch is approved
+#   bridge.sh --logs [slug]             View logs for active agents
+#   bridge.sh --model <provider/model>   Run task using a specific model
+#   bridge.sh --list-models             List all available models
 
 set -euo pipefail
 
@@ -34,11 +37,74 @@ link_dependencies() {
     main_root="$(git rev-parse --show-toplevel)"
     for dep in "${DEP_DIRS[@]}"; do
         if [ -e "${main_root}/${dep}" ] && [ ! -e "${worktree_path}/${dep}" ]; then
-            l            ln -s "${main_root}/${dep}" "${worktree_path}/${dep}"
+            ln -s "${main_root}/${dep}" "${worktree_path}/${dep}"
             echo "  Linked ${dep}"
         fi
     done
 }
+
+run_test_gate() {
+    local worktree_path="$1" test_cmd="$2"
+    if [ -z "$test_cmd" ]; then
+        return 0
+    fi
+    echo "Running test gate: $test_cmd"
+    local test_exit=0
+    (cd "$worktree_path" && eval "$test_cmd") || test_exit=$?
+    TEST_EXIT_CODE=$test_exit
+    return $test_exit
+}
+
+# --- Early flag handling for model selection ---
+
+# Handle --model <value> syntax - set model and continue
+MODEL=""
+if [ "${1:-}" = "--model" ]; then
+    MODEL="${2:-}"
+    shift 2
+fi
+
+# Handle other flags
+if [ "${1:-}" = "--list-models" ]; then
+    shift
+    echo "Available Opencode models:"
+    opencode models 2>/dev/null | tail -n +2
+    exit 0
+fi
+
+if [ "${1:-}" = "--status" ]; then
+    handle_status
+    exit 0
+fi
+
+if [ "${1:-}" = "--cleanup" ]; then
+    [ -n "${2:-}" ] || die "--cleanup requires a slug argument"
+    handle_cleanup "$2"
+    exit 0
+fi
+
+if [ "${1:-}" = "--logs" ]; then
+    slug="${2:-}"
+    if [ -n "$slug" ]; then
+        log="${AGENTS_DIR}/${slug}/opencode.log"
+        if [ -f "$log" ]; then
+            cat "$log"
+        else
+            echo "No log found for slug: $slug"
+        fi
+    else
+        for log in "$AGENTS_DIR"/*/opencode.log; do
+            [ -f "$log" ] || continue
+            slug="$(basename "$(dirname "$log")")"
+            echo "=== $slug ==="
+            tail -20 "$log"
+            echo ""
+        done
+    fi
+    exit 0
+fi
+
+# --- Main processing ---
 
 handle_status() {
     if [ ! -d "$AGENTS_DIR" ]; then
@@ -72,66 +138,8 @@ handle_cleanup() {
     exit 0
 }
 
-run_test_gate() {
-    local worktree_path="$1" test_cmd="$2"
-    if [ -z "$test_cmd" ]; then
-        return 0
-    fi
-    echo "Running test gate: $test_cmd"
-    local test_exit=0
-    (cd "$worktree_path" && eval "$test_cmd") || test_exit=$?
-    TEST_EXIT_CODE=$test_exit
-    return $test_exit
-}
-
-# --- Early parsing ---
-
-# Handle --model <value> syntax before SLUG is set
-MODEL=""
-if [ "${1:-}" = "--model" ]; then
-    MODEL="${2:-}"
-    shift 2
-elif [ "${1:-}" = "--list-models" ]; then
-    shift
-elif [ -n "${1:-}" ]; then
-    SLUG="${1:-}"
-fi
-
-# Handle main flags that don't affect SLUG
-if [ "${1:-}" = "--status" ]; then
-    handle_status
-    exit 0
-fi
-
-if [ "${1:-}" = "--cleanup" ]; then
-    [ -n "${2:-}" ] || die "--cleanup requires a slug argument"
-    handle_cleanup "$2"
-    exit 0
-fi
-
-if [ "${1:-}" = "--logs" ]; then
-    slug="${2:-}"
-    if [ -n "$slug" ]; then
-        log="${AGENTS_DIR}/${slug}/opencode.log"
-        if [ -f "$log" ]; then
-            cat "$log"
-        else
-            echo "No log found for slug: $slug"
-        fi
-    else
-        for log in "$AGENTS_DIR"/*/opencode.log; do
-            [ -f "$log" ] || continue
-            slug="$(basename "$(dirname "$log")")"
-            echo "=== $slug ==="
-            tail -20 "$log"
-            echo ""
-        done
-    fi
-    exit 0
-fi
-
 SLUG="${1:-}"
-[ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug]"
+[ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug] | --model <provider/model>"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     die "Not inside a Git repository"
@@ -154,39 +162,28 @@ TEST_EXIT_CODE=""
 
 MODE=""
 INSTRUCTION_FILE=""
-# Default to default model, can be overridden by Model: header
-if [ -n "$MODEL" ] && [ "${DEFAULT_MODEL:-}" = "" ]; then
-    DEFAULT_MODEL="$MODEL"
-fi
-if [ -n "${MODEL:-}" ]; then
-    MODEL="$MODEL"
-fi
-MODEL="$(parse_header "$INSTRUCTION_FILE" "Model")"
-if [ -z "$MODEL" ] && [ -n "${DEFAULT_MODEL:-}" ]; then
-    MODEL="$DEFAULT_MODEL"
-fi
-if [ -z "$MODEL" ]; then
-    # Use global default if available
-    GLOBAL_MODEL=""
-    if [ -f "$HOME/.opencode/opencode.json" ]; then
-        GLOBAL_MODEL="$(jq -r '.default_model // if .models then (keys | .[0]) else "" end' "$HOME/.opencode/opencode.json" 2>/dev/null || echo "")"
-    fi
-    if [ -n "$GLOBAL_MODEL" ]; then
-        MODEL="$GLOBAL_MODEL"
-    fi
-    die "No model specified (no Model: header, no --model flag, no global default) -- please specify a model using --model, Model: in task file, or set in ~/.opencode/opencode.json"
+if [ -f "$FEEDBACK_FILE" ]; then
+    MODE="feedback"
+    INSTRUCTION_FILE="$FEEDBACK_FILE"
+    echo "Processing feedback for $SLUG..."
+elif [ -f "$TASK_FILE" ]; then
+    MODE="task"
+    INSTRUCTION_FILE="$TASK_FILE"
+    echo "Processing new task for $SLUG..."
+else
+    die "Neither $TASK_FILE nor $FEEDBACK_FILE found"
 fi
 
-# Validate model format
+BRANCH="$(parse_header "$INSTRUCTION_FILE" "Branch")"
+MODEL="$(parse_header "$INSTRUCTION_FILE" "Model")"
+TEST_CMD="$(parse_header "$INSTRUCTION_FILE" "Test")"
+FILES="$(parse_header "$INSTRUCTION_FILE" "Files")"
+
 if [ -n "$MODEL" ]; then
+    # Validate model format: must be provider/model
     if ! echo "$MODEL" | grep -qE '^opencode/|^\w+/'; then
         die "Invalid model format: '$MODEL'. Must be 'provider/model' (e.g., 'lmstudio/qwen/qwen3.5-9b')"
     fi
-fi
-
-if [ "$OPENCODE_AVAILABLE" = false ]; then
-    json_output "no_opencode" "" "${SLUG:-}" "" "" "" "opencode CLI not found -- Claude should prompt user to proceed directly"
-    exit 10
 fi
 
 [ -n "$BRANCH" ] || die "No Branch: header found in $INSTRUCTION_FILE"
@@ -196,14 +193,16 @@ if [ "$MODE" = "task" ]; then
         echo "Worktree already exists for $SLUG, reusing..."
     else
         mkdir -p "$AGENTS_DIR"
-        echo "Creating worktree at $WORKTREE_PATH on branch $BRANCH..."
+        echo "Creating worktree at $WORKTREE_PATH on branch $BRANCH (model=$MODEL)..."
         if git show-ref --verify --quiet "refs/heads/${BRANCH}" 2>/dev/null; then
             git worktree add "$WORKTREE_PATH" "$BRANCH"
         else
+            echo "Creating new branch $BRANCH..."
             git worktree add "$WORKTREE_PATH" -b "$BRANCH"
         fi
         echo "Linking dependencies..."
         link_dependencies "$WORKTREE_PATH"
+        echo "DEBUG: MODEL=$MODEL BRANCH=$BRANCH TASKCONTENT_LENGTH=${#TASK_CONTENT}"
     fi
 
     cp "$INSTRUCTION_FILE" "${WORKTREE_PATH}/.local_task.md"
@@ -223,7 +222,7 @@ fi
 TASK_CONTENT="$(cat "$INSTRUCTION_FILE")"
 LOG_FILE="${WORKTREE_PATH}/opencode.log"
 
-echo "Invoking OpenCode for $SLUG with model $MODEL..."
+echo "DEBUG: MODEL=$MODEL BRANCH=$BRANCH"
 echo "[$(date '+%H:%M:%S')] Starting OpenCode for $SLUG ($MODE mode, model=$MODEL)" > "$LOG_FILE"
 
 COMMAND="opencode run --dangerously-skip-permissions"
@@ -245,8 +244,6 @@ if [ $OPENCODE_EXIT -ne 0 ]; then
 fi
 
 rm -f "${WORKTREE_PATH}/.local_task.md" "${WORKTREE_PATH}/.local_feedback.md"
-
-
 
 TEST_PASSED=true
 if [ -n "$TEST_CMD" ]; then
