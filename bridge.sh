@@ -266,7 +266,7 @@ echo "Invoking OpenCode in $WORKTREE_PATH..."
 echo "[$(date '+%H:%M:%S')] Starting OpenCode for $SLUG ($MODE mode) | timeout=${WALL_TIMEOUT}s max_fails=${MAX_FAILS}" > "$LOG_FILE"
 echo "  Follow progress: ~/.claude/skills/opencode-delegate/bridge.sh --logs $SLUG"
 
-CMD=(opencode run --dangerously-skip-permissions)
+CMD=(opencode run --dangerously-skip-permissions --pure)
 if [ -n "$MODEL" ]; then
     CMD+=(--model "$MODEL")
 fi
