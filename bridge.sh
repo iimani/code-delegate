@@ -48,10 +48,14 @@ handle_status() {
     echo "Active agent worktrees:"
     for dir in "$AGENTS_DIR"/*/; do
         [ -d "$dir" ] || continue
-        local slug branch
+        local slug branch last_log
         slug="$(basename "$dir")"
         branch="$(git -C "$dir" branch --show-current 2>/dev/null || echo "unknown")"
-        echo "  $slug -> $branch"
+        last_log=""
+        if [ -f "${dir}opencode.log" ]; then
+            last_log=" | $(tail -1 "${dir}opencode.log")"
+        fi
+        echo "  $slug -> $branch$last_log"
     done
     exit 0
 }
@@ -91,8 +95,29 @@ if [ "${1:-}" = "--cleanup" ]; then
     handle_cleanup "$2"
 fi
 
+if [ "${1:-}" = "--logs" ]; then
+    slug="${2:-}"
+    if [ -n "$slug" ]; then
+        log="${AGENTS_DIR}/${slug}/opencode.log"
+        if [ -f "$log" ]; then
+            cat "$log"
+        else
+            echo "No log found for slug: $slug"
+        fi
+    else
+        for log in "$AGENTS_DIR"/*/opencode.log; do
+            [ -f "$log" ] || continue
+            slug="$(basename "$(dirname "$log")")"
+            echo "=== $slug ==="
+            tail -20 "$log"
+            echo ""
+        done
+    fi
+    exit 0
+fi
+
 SLUG="${1:-}"
-[ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug>"
+[ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug]"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     die "Not inside a Git repository"
@@ -163,16 +188,21 @@ elif [ "$MODE" = "feedback" ]; then
 fi
 
 TASK_CONTENT="$(cat "$INSTRUCTION_FILE")"
+LOG_FILE="${WORKTREE_PATH}/opencode.log"
 
 echo "Invoking OpenCode in $WORKTREE_PATH..."
+echo "[$(date '+%H:%M:%S')] Starting OpenCode for $SLUG ($MODE mode)" > "$LOG_FILE"
+
 OPENCODE_EXIT=0
 if [ "$MODE" = "feedback" ]; then
     (cd "$WORKTREE_PATH" && opencode run --dangerously-skip-permissions \
-        "Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT") || OPENCODE_EXIT=$?
+        "Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
 else
     (cd "$WORKTREE_PATH" && opencode run --dangerously-skip-permissions \
-        "Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT") || OPENCODE_EXIT=$?
+        "Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
 fi
+
+echo "[$(date '+%H:%M:%S')] OpenCode finished (exit: $OPENCODE_EXIT)" >> "$LOG_FILE"
 
 if [ $OPENCODE_EXIT -ne 0 ]; then
     json_output "error" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "" "" "OpenCode exited with code $OPENCODE_EXIT"

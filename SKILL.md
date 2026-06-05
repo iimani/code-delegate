@@ -70,13 +70,22 @@ One sentence describing what this achieves.
 6. **Fix Loop**: If issues found, write `.local_feedback_<slug>.md` and run the bridge again with the same slug.
 
 ### Parallel dispatch
-Write multiple task files, then invoke the bridge in parallel:
+Write multiple task files, then invoke the bridge in parallel using `run_in_background: true`:
 ```
-~/.claude/skills/opencode-delegate/bridge.sh feat-logger
-~/.claude/skills/opencode-delegate/bridge.sh feat-auth
-~/.claude/skills/opencode-delegate/bridge.sh fix-parse-error
+# Launch all tasks in background
+~/.claude/skills/opencode-delegate/bridge.sh feat-logger    # run_in_background: true
+~/.claude/skills/opencode-delegate/bridge.sh feat-auth      # run_in_background: true
+~/.claude/skills/opencode-delegate/bridge.sh fix-parse-error # run_in_background: true
 ```
-Each call creates its own worktree and runs independently.
+Each call creates its own worktree and runs independently. You will be notified as each completes.
+
+### Monitoring progress
+While agents are running in the background, check progress with:
+```
+~/.claude/skills/opencode-delegate/bridge.sh --logs              # tail all agents
+~/.claude/skills/opencode-delegate/bridge.sh --logs <slug>       # full log for one agent
+```
+Each agent writes a live log to `.git/worktrees_agents/<slug>/opencode.log`. Use `--logs` to give the user progress updates when they ask or when waiting for background tasks to finish.
 
 ### Feedback loop
 Write `.local_feedback_<slug>.md` with the same `Branch:` header and specific fix instructions. The bridge routes it to the existing worktree for that slug.
