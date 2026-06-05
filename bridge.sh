@@ -6,11 +6,17 @@
 #   bridge.sh <slug>              Run task or feedback for the given branch slug
 #   bridge.sh --status            List active agent worktrees
 #   bridge.sh --cleanup <slug>    Remove a worktree after branch is approved
+#   bridge.sh --logs [slug]       Tail logs for one or all running agents
 
 set -euo pipefail
 
 AGENTS_DIR=".git/worktrees_agents"
 DEP_DIRS=("node_modules" "venv" ".venv" "vendor" "target" ".build")
+
+DEFAULT_WALL_TIMEOUT=3600   # 60 minutes
+DEFAULT_MAX_FAILS=8         # abort after this many detected failure pattern matches
+DEFAULT_FAIL_PATTERN="build commands failed|compilation error|FAILED|npm ERR!"
+STALL_SECONDS=180           # kill if log has no new bytes for this many seconds
 
 json_output() {
     local status="$1" branch="${2:-}" slug="${3:-}" worktree="${4:-}" test_exit="${5:-}" test_cmd="${6:-}" msg="${7:-}"
@@ -82,6 +88,56 @@ run_test_gate() {
     (cd "$worktree_path" && eval "$test_cmd") || test_exit=$?
     TEST_EXIT_CODE=$test_exit
     return $test_exit
+}
+
+# Monitors an opencode process for stalls, failure loops, and wall-clock timeout.
+# Kills $pid and writes a reason to $abort_file if any limit is triggered.
+start_watcher() {
+    local pid="$1" log="$2" wall_timeout="$3" max_fails="$4" fail_pattern="$5" abort_file="$6"
+    (
+        elapsed=0
+        last_size=0
+        stall_elapsed=0
+        while kill -0 "$pid" 2>/dev/null; do
+            sleep 30
+            elapsed=$((elapsed + 30))
+
+            # Wall-clock timeout
+            if [ "$elapsed" -ge "$wall_timeout" ]; then
+                echo "[BRIDGE] $(date '+%H:%M:%S') Timeout: wall-clock limit ${wall_timeout}s reached" >> "$log"
+                echo "timeout after ${wall_timeout}s" > "$abort_file"
+                kill "$pid" 2>/dev/null || true
+                break
+            fi
+
+            # Stall detection — no log growth
+            cur_size=$(wc -c < "$log" 2>/dev/null | tr -d ' ' || echo 0)
+            if [ "$cur_size" -eq "$last_size" ]; then
+                stall_elapsed=$((stall_elapsed + 30))
+                if [ "$stall_elapsed" -ge "$STALL_SECONDS" ]; then
+                    echo "[BRIDGE] $(date '+%H:%M:%S') Stall: no log activity for ${STALL_SECONDS}s" >> "$log"
+                    echo "stall: no activity for ${STALL_SECONDS}s" > "$abort_file"
+                    kill "$pid" 2>/dev/null || true
+                    break
+                fi
+            else
+                stall_elapsed=0
+                last_size=$cur_size
+            fi
+
+            # Failure loop detection
+            if [ -n "$fail_pattern" ] && [ "$max_fails" -gt 0 ]; then
+                fail_count=$(grep -cE "$fail_pattern" "$log" 2>/dev/null || echo 0)
+                if [ "$fail_count" -ge "$max_fails" ]; then
+                    echo "[BRIDGE] $(date '+%H:%M:%S') Loop: $fail_count failures detected (limit $max_fails)" >> "$log"
+                    echo "loop: $fail_count failures matching '${fail_pattern}'" > "$abort_file"
+                    kill "$pid" 2>/dev/null || true
+                    break
+                fi
+            fi
+        done
+    ) &
+    echo $!
 }
 
 # --- Main ---
@@ -157,6 +213,13 @@ BRANCH="$(parse_header "$INSTRUCTION_FILE" "Branch")"
 MODEL="$(parse_header "$INSTRUCTION_FILE" "Model")"
 TEST_CMD="$(parse_header "$INSTRUCTION_FILE" "Test")"
 FILES="$(parse_header "$INSTRUCTION_FILE" "Files")"
+WALL_TIMEOUT="$(parse_header "$INSTRUCTION_FILE" "Timeout")"
+MAX_FAILS="$(parse_header "$INSTRUCTION_FILE" "MaxFails")"
+FAIL_PATTERN="$(parse_header "$INSTRUCTION_FILE" "FailPattern")"
+
+WALL_TIMEOUT="${WALL_TIMEOUT:-$DEFAULT_WALL_TIMEOUT}"
+MAX_FAILS="${MAX_FAILS:-$DEFAULT_MAX_FAILS}"
+FAIL_PATTERN="${FAIL_PATTERN:-$DEFAULT_FAIL_PATTERN}"
 
 [ -n "$BRANCH" ] || die "No Branch: header found in $INSTRUCTION_FILE"
 
@@ -195,32 +258,75 @@ fi
 
 TASK_CONTENT="$(cat "$INSTRUCTION_FILE")"
 LOG_FILE="${WORKTREE_PATH}/opencode.log"
+ABORT_FILE="${WORKTREE_PATH}/.bridge_abort"
+
+rm -f "$ABORT_FILE"
 
 echo "Invoking OpenCode in $WORKTREE_PATH..."
-echo "[$(date '+%H:%M:%S')] Starting OpenCode for $SLUG ($MODE mode)" > "$LOG_FILE"
+echo "[$(date '+%H:%M:%S')] Starting OpenCode for $SLUG ($MODE mode) | timeout=${WALL_TIMEOUT}s max_fails=${MAX_FAILS}" > "$LOG_FILE"
+echo "  Follow progress: ~/.claude/skills/opencode-delegate/bridge.sh --logs $SLUG"
 
 CMD=(opencode run --dangerously-skip-permissions)
 if [ -n "$MODEL" ]; then
     CMD+=(--model "$MODEL")
 fi
 
-OPENCODE_EXIT=0
+PREAMBLE="$(cat <<'PREAMBLE_EOF'
+<agent-role>
+You are a direct code implementation agent dispatched by Claude Code. Your ONLY job is to implement the spec below.
+
+Rules:
+- Do NOT invoke any skills or load any skill frameworks (no using-superpowers, no TDD workflow, no brainstorming)
+- Do NOT fetch external URLs
+- Do NOT write plans, specs, or analysis documents
+- Do NOT ask clarifying questions — the spec is authoritative
+
+Workflow: read files → make changes → build/test → fix errors → repeat until the test gate passes or the spec is fully implemented.
+</agent-role>
+PREAMBLE_EOF
+)"
+
 if [ "$MODE" = "feedback" ]; then
-    (cd "$WORKTREE_PATH" && "${CMD[@]}" "Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || true
-    OPENCODE_EXIT=${PIPESTATUS[0]}
+    PROMPT_TEXT="${PREAMBLE}"$'\n\n'"Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT"
 else
-    (cd "$WORKTREE_PATH" && "${CMD[@]}" "Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || true
-    OPENCODE_EXIT=${PIPESTATUS[0]}
+    PROMPT_TEXT="${PREAMBLE}"$'\n\n'"Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT"
 fi
 
+# Use exec inside the subshell so the PID we track IS the opencode process,
+# allowing the watcher to kill it directly.
+OPENCODE_EXIT=0
+(
+    cd "$WORKTREE_PATH"
+    exec "${CMD[@]}" "$PROMPT_TEXT"
+) >> "$LOG_FILE" 2>&1 &
+OC_PID=$!
+
+WATCHER_PID=$(start_watcher "$OC_PID" "$LOG_FILE" "$WALL_TIMEOUT" "$MAX_FAILS" "$FAIL_PATTERN" "$ABORT_FILE")
+
+wait "$OC_PID" 2>/dev/null || OPENCODE_EXIT=$?
+kill "$WATCHER_PID" 2>/dev/null || true
+wait "$WATCHER_PID" 2>/dev/null || true
+
 echo "[$(date '+%H:%M:%S')] OpenCode finished (exit: $OPENCODE_EXIT)" >> "$LOG_FILE"
+
+# Watcher writes the kill reason here before sending SIGTERM
+ABORT_REASON=""
+if [ -f "$ABORT_FILE" ]; then
+    ABORT_REASON="$(cat "$ABORT_FILE")"
+    rm -f "$ABORT_FILE"
+fi
+
+rm -f "${WORKTREE_PATH}/.local_task.md" "${WORKTREE_PATH}/.local_feedback.md"
+
+if [ -n "$ABORT_REASON" ]; then
+    json_output "aborted" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "" "" "Agent aborted: $ABORT_REASON"
+    exit 2
+fi
 
 if [ "$OPENCODE_EXIT" -ne 0 ]; then
     json_output "error" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "" "" "OpenCode exited with code $OPENCODE_EXIT"
     exit $OPENCODE_EXIT
 fi
-
-rm -f "${WORKTREE_PATH}/.local_task.md" "${WORKTREE_PATH}/.local_feedback.md"
 
 TEST_PASSED=true
 if [ -n "$TEST_CMD" ]; then
