@@ -34,7 +34,7 @@ link_dependencies() {
     main_root="$(git rev-parse --show-toplevel)"
     for dep in "${DEP_DIRS[@]}"; do
         if [ -e "${main_root}/${dep}" ] && [ ! -e "${worktree_path}/${dep}" ]; then
-            ln -s "${main_root}/${dep}" "${worktree_path}/${dep}"
+            l            ln -s "${main_root}/${dep}" "${worktree_path}/${dep}"
             echo "  Linked ${dep}"
         fi
     done
@@ -84,15 +84,29 @@ run_test_gate() {
     return $test_exit
 }
 
-# --- Main ---
+# --- Early parsing ---
 
+# Handle --model <value> syntax before SLUG is set
+MODEL=""
+if [ "${1:-}" = "--model" ]; then
+    MODEL="${2:-}"
+    shift 2
+elif [ "${1:-}" = "--list-models" ]; then
+    shift
+elif [ -n "${1:-}" ]; then
+    SLUG="${1:-}"
+fi
+
+# Handle main flags that don't affect SLUG
 if [ "${1:-}" = "--status" ]; then
     handle_status
+    exit 0
 fi
 
 if [ "${1:-}" = "--cleanup" ]; then
     [ -n "${2:-}" ] || die "--cleanup requires a slug argument"
     handle_cleanup "$2"
+    exit 0
 fi
 
 if [ "${1:-}" = "--logs" ]; then
@@ -140,21 +154,40 @@ TEST_EXIT_CODE=""
 
 MODE=""
 INSTRUCTION_FILE=""
-if [ -f "$FEEDBACK_FILE" ]; then
-    MODE="feedback"
-    INSTRUCTION_FILE="$FEEDBACK_FILE"
-    echo "Processing feedback for $SLUG..."
-elif [ -f "$TASK_FILE" ]; then
-    MODE="task"
-    INSTRUCTION_FILE="$TASK_FILE"
-    echo "Processing new task for $SLUG..."
-else
-    die "Neither $TASK_FILE nor $FEEDBACK_FILE found"
+# Default to default model, can be overridden by Model: header
+if [ -n "$MODEL" ] && [ "${DEFAULT_MODEL:-}" = "" ]; then
+    DEFAULT_MODEL="$MODEL"
+fi
+if [ -n "${MODEL:-}" ]; then
+    MODEL="$MODEL"
+fi
+MODEL="$(parse_header "$INSTRUCTION_FILE" "Model")"
+if [ -z "$MODEL" ] && [ -n "${DEFAULT_MODEL:-}" ]; then
+    MODEL="$DEFAULT_MODEL"
+fi
+if [ -z "$MODEL" ]; then
+    # Use global default if available
+    GLOBAL_MODEL=""
+    if [ -f "$HOME/.opencode/opencode.json" ]; then
+        GLOBAL_MODEL="$(jq -r '.default_model // if .models then (keys | .[0]) else "" end' "$HOME/.opencode/opencode.json" 2>/dev/null || echo "")"
+    fi
+    if [ -n "$GLOBAL_MODEL" ]; then
+        MODEL="$GLOBAL_MODEL"
+    fi
+    die "No model specified (no Model: header, no --model flag, no global default) -- please specify a model using --model, Model: in task file, or set in ~/.opencode/opencode.json"
 fi
 
-BRANCH="$(parse_header "$INSTRUCTION_FILE" "Branch")"
-TEST_CMD="$(parse_header "$INSTRUCTION_FILE" "Test")"
-FILES="$(parse_header "$INSTRUCTION_FILE" "Files")"
+# Validate model format
+if [ -n "$MODEL" ]; then
+    if ! echo "$MODEL" | grep -qE '^opencode/|^\w+/'; then
+        die "Invalid model format: '$MODEL'. Must be 'provider/model' (e.g., 'lmstudio/qwen/qwen3.5-9b')"
+    fi
+fi
+
+if [ "$OPENCODE_AVAILABLE" = false ]; then
+    json_output "no_opencode" "" "${SLUG:-}" "" "" "" "opencode CLI not found -- Claude should prompt user to proceed directly"
+    exit 10
+fi
 
 [ -n "$BRANCH" ] || die "No Branch: header found in $INSTRUCTION_FILE"
 
@@ -190,16 +223,18 @@ fi
 TASK_CONTENT="$(cat "$INSTRUCTION_FILE")"
 LOG_FILE="${WORKTREE_PATH}/opencode.log"
 
-echo "Invoking OpenCode in $WORKTREE_PATH..."
-echo "[$(date '+%H:%M:%S')] Starting OpenCode for $SLUG ($MODE mode)" > "$LOG_FILE"
+echo "Invoking OpenCode for $SLUG with model $MODEL..."
+echo "[$(date '+%H:%M:%S')] Starting OpenCode for $SLUG ($MODE mode, model=$MODEL)" > "$LOG_FILE"
 
-OPENCODE_EXIT=0
+COMMAND="opencode run --dangerously-skip-permissions"
+if [ -n "$MODEL" ]; then
+    COMMAND="$COMMAND --model $MODEL"
+fi
+
 if [ "$MODE" = "feedback" ]; then
-    (cd "$WORKTREE_PATH" && opencode run --dangerously-skip-permissions \
-        "Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
+    ("$COMMAND" "Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
 else
-    (cd "$WORKTREE_PATH" && opencode run --dangerously-skip-permissions \
-        "Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
+    ("$COMMAND" "Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
 fi
 
 echo "[$(date '+%H:%M:%S')] OpenCode finished (exit: $OPENCODE_EXIT)" >> "$LOG_FILE"
@@ -210,6 +245,8 @@ if [ $OPENCODE_EXIT -ne 0 ]; then
 fi
 
 rm -f "${WORKTREE_PATH}/.local_task.md" "${WORKTREE_PATH}/.local_feedback.md"
+
+
 
 TEST_PASSED=true
 if [ -n "$TEST_CMD" ]; then
