@@ -116,6 +116,21 @@ if [ "${1:-}" = "--logs" ]; then
     exit 0
 fi
 
+if [ "${1:-}" = "--list-models" ]; then
+    echo "Available Opencode models:"
+    opencode models --print-logs | tail -n +20
+    exit 0
+fi
+
+MODEL="${1:-}"
+if [ -n "$MODEL" ]; then
+    # Handle --model <value> syntax
+    shift
+elif ! command -v opencode >/dev/null 2>&1; then
+    json_output "no_opencode" "" "${SLUG:-}" "" "" "" "opencode CLI not found -- Claude should prompt user to proceed directly"
+    exit 10
+fi
+
 SLUG="${1:-}"
 [ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug]"
 
@@ -133,6 +148,12 @@ if [ "$OPENCODE_AVAILABLE" = false ]; then
     exit 10
 fi
 
+if [ -n "$MODEL" ]; then
+    if ! echo "$MODEL" | grep -qE '^opencode/|^\w+/'; then
+        die "Invalid model format: '$MODEL'. Must be 'provider/model' (e.g., 'lmstudio/qwen/qwen3.5-9b')"
+    fi
+fi
+
 TASK_FILE=".local_task_${SLUG}.md"
 FEEDBACK_FILE=".local_feedback_${SLUG}.md"
 WORKTREE_PATH="${AGENTS_DIR}/${SLUG}"
@@ -140,6 +161,7 @@ TEST_EXIT_CODE=""
 
 MODE=""
 INSTRUCTION_FILE=""
+MODEL=""
 if [ -f "$FEEDBACK_FILE" ]; then
     MODE="feedback"
     INSTRUCTION_FILE="$FEEDBACK_FILE"
@@ -153,6 +175,7 @@ else
 fi
 
 BRANCH="$(parse_header "$INSTRUCTION_FILE" "Branch")"
+MODEL="$(parse_header "$INSTRUCTION_FILE" "Model")"
 TEST_CMD="$(parse_header "$INSTRUCTION_FILE" "Test")"
 FILES="$(parse_header "$INSTRUCTION_FILE" "Files")"
 
@@ -193,13 +216,15 @@ LOG_FILE="${WORKTREE_PATH}/opencode.log"
 echo "Invoking OpenCode in $WORKTREE_PATH..."
 echo "[$(date '+%H:%M:%S')] Starting OpenCode for $SLUG ($MODE mode)" > "$LOG_FILE"
 
-OPENCODE_EXIT=0
+COMMAND="opencode run --dangerously-skip-permissions"
+if [ -n "$MODEL" ]; then
+    COMMAND="$COMMAND --model $MODEL"
+fi
+
 if [ "$MODE" = "feedback" ]; then
-    (cd "$WORKTREE_PATH" && opencode run --dangerously-skip-permissions \
-        "Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
+    ("$COMMAND" "Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
 else
-    (cd "$WORKTREE_PATH" && opencode run --dangerously-skip-permissions \
-        "Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
+    ("$COMMAND" "Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT") 2>&1 | tee -a "$LOG_FILE" || OPENCODE_EXIT=${PIPESTATUS[0]}
 fi
 
 echo "[$(date '+%H:%M:%S')] OpenCode finished (exit: $OPENCODE_EXIT)" >> "$LOG_FILE"
