@@ -123,6 +123,17 @@ If the bridge exits with code 10 and `"status": "no_opencode"`, it means the `op
 
 Do NOT silently fall back — always ask first. The user may prefer to install OpenCode or defer the task.
 
+## OpenCode Produced No Changes (Status "pass" But No Diff)
+
+If the bridge reports `"status": "pass"` but `git diff` in the worktree shows no changes, OpenCode ran but failed to implement anything. This is a silent failure. When this happens:
+
+1. **Tell the user** that OpenCode completed without making any code changes.
+2. **Ask the user**: "OpenCode didn't produce any changes. Should I implement this myself, or would you like to retry the delegation?"
+3. **Do NOT implement the changes yourself without asking.** Always wait for the user's explicit approval.
+4. If the user says to proceed, read the task spec and implement it directly.
+
+This rule applies to ALL fallback scenarios — never silently take over implementation from the delegate.
+
 ## Notes
 - Do not write massive blocks of code directly if this skill is available.
 - Always use the exact path `~/.claude/skills/opencode-delegate/bridge.sh` to run the tool.
