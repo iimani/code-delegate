@@ -59,6 +59,7 @@ One sentence describing what this achieves.
 - Include line range hints for modifications (helps smaller models focus)
 - Keep constraints explicit — local models are prone to scope creep
 - Bullet points only, no prose paragraphs
+- **NEVER write code blocks or function bodies in the spec.** Describe WHAT to build, not HOW. The delegate writes the code — that's the whole point. If you're pasting Swift/TypeScript/Python into the task file, you're doing the delegate's job and wasting tokens twice. Say "add a `calendar(start:end:)` method that fetches from the `/calendar` endpoint with ISO8601 date query params" — don't write the function.
 
 ## Execution Protocol
 
