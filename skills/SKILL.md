@@ -53,12 +53,6 @@ One sentence describing what this achieves.
 - `Model:` (optional) — provider/model to use (e.g., `lmstudio/qwen/qwen3.5-9b`)
 - `Test:` (optional) — shell command to run as a test gate after implementation
 - `Files:` (optional) — comma-separated list of files the agent should touch
-- `Timeout:` (optional) — wall-clock kill limit in seconds (default: 3600 = 60 min)
-- `MaxFails:` (optional) — abort after this many failure-pattern matches in the log (default: 8; set to 0 to disable)
-- `FailPattern:` (optional) — ERE pattern counted as one failure hit (default: `build commands failed|compilation error|FAILED|npm ERR!`)
-
-**Model selection guidance:**
-Small models (≤9B) handle single-file, well-scoped tasks reliably. For tasks involving complex type systems (Swift concurrency, TypeScript generics), cross-file refactors, or multi-step build feedback loops, set `Model:` to a larger local model or route to Claude via API. If the task requires reasoning about compiler error chains, a 9B model is likely to doom-loop — lower `MaxFails:` to 5 so failures surface faster.
 
 **Body guidelines:**
 - Use `CREATE` / `MODIFY` / `DELETE` verbs per file section
@@ -128,7 +122,6 @@ The bridge prints a JSON object as its final stdout line:
 - `pass` — OpenCode finished and tests passed (or no test gate)
 - `fail` — OpenCode finished but test gate failed; worktree preserved for feedback
 - `error` — bridge-level failure (missing files, git errors, opencode crash)
-- `aborted` — watcher killed the agent due to timeout, stall, or failure loop; `message` contains the reason
 
 ## OpenCode Not Available (Exit Code 10)
 
@@ -151,17 +144,6 @@ If the bridge reports `"status": "pass"` but `git diff` in the worktree shows no
 4. If the user says to proceed, read the task spec and implement it directly.
 
 This rule applies to ALL fallback scenarios — never silently take over implementation from the delegate.
-
-## Agent Aborted (Status "aborted")
-
-If the bridge returns `"status": "aborted"`, the watcher killed the agent due to a timeout, stall, or failure loop. The worktree is preserved with whatever partial work the agent completed. When this happens:
-
-1. **Tell the user** what happened, including the abort reason from `message` (e.g. "loop: 8 failures matching 'build commands failed'").
-2. **Inspect the partial work**: run `git diff main..<branch>` in the worktree to see what the agent managed to produce before being killed.
-3. **Take over directly** — do not ask, do not re-delegate. Read the original task spec (`.local_task_<slug>.md` still exists) and the partial diff, then implement the remaining work yourself using your own tools. The agent's partial changes may be usable as a starting point or may need to be reverted first — read the diff and decide.
-4. After completing the implementation, run the test gate manually to verify, then clean up: `bridge.sh --cleanup <slug>`.
-
-The rationale: if a local model doom-looped on a task, re-delegating will produce the same result. Take over and finish it.
 
 ## Notes
 - Do not write massive blocks of code directly if this skill is available.
