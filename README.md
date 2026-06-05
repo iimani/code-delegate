@@ -75,11 +75,43 @@ Configure it to use LM Studio in `~/.config/opencode/opencode.json`:
 Add this to your global `~/.claude/CLAUDE.md` so Claude always uses delegation:
 
 ```markdown
-# Global Cloud-to-Local Orchestration Rules
+# Default Delegation Behavior — OVERRIDES ALL EXECUTION SKILLS
 
-You are the **Lead Architect (Claude Code)**. Your partner is the **Developer Agent (OpenCode via LM Studio)**.
-To maximize efficiency, you must never write massive blocks of repetitive code, boilerplate, or heavy unit tests yourself. Instead, offload them using the `opencode-delegate` skill.
+**This rule takes priority over superpowers execution skills** (executing-plans,
+subagent-driven-development, and any other skill that writes code). When you reach the
+implementation phase — whether driven by superpowers, a plan, or a direct request — you
+MUST invoke the `opencode-delegate` skill instead of writing code yourself or dispatching
+Claude subagents.
+
+Invoke the skill via: `Skill tool → skill: "opencode-delegate"`
+
+The skill handles everything: spec format, worktree isolation, bridge invocation, test
+gates, and feedback loops. If OpenCode is not installed (bridge exits with code 10), ask
+the user whether to proceed yourself.
+
+**This means:**
+- After `writing-plans` produces a plan → invoke `opencode-delegate` (NOT `executing-plans`
+  or `subagent-driven-development`)
+- When a superpowers skill tells you to "execute the plan" → use `opencode-delegate` as
+  the execution engine
+- When dispatching parallel tasks → write multiple `.local_task_<slug>.md` files and invoke
+  the bridge in parallel
+
+**When NOT to delegate** (do it yourself):
+- One-line fixes, config edits, or single-field changes
+- Exploratory reads, git operations, or reviews
+- The user explicitly says "do it yourself" or "don't delegate"
 ```
+
+#### Why the override is needed
+
+If you use the [superpowers](https://github.com/obra/superpowers) plugin, its skill chain
+(brainstorming → writing-plans → executing-plans) has a hardcoded execution phase that
+dispatches Claude subagents or writes code inline. Without the override, superpowers takes
+over at the implementation step and never reaches the `opencode-delegate` skill. The
+`CLAUDE.md` instruction intercepts this: Claude reads it at every turn, and it explicitly
+names the superpowers skills it replaces, so Claude uses the local delegate instead of
+cloud subagents for implementation work.
 
 ## Usage
 
