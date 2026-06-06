@@ -24,8 +24,8 @@ if ! command -v claude &>/dev/null; then
 fi
 
 RESULTS_DIR="$SCRIPT_DIR/results"
-rm -rf "$RESULTS_DIR"
 mkdir -p "$RESULTS_DIR"
+find "$RESULTS_DIR" -name "*.out" -delete
 
 passed=0
 failed=0
