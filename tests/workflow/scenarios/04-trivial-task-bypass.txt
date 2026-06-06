@@ -1,0 +1,6 @@
+DESCRIPTION: Trivial one-line changes should be done directly without delegation or distribution analysis
+PROMPT: You are in an existing TypeScript project. Change the default port constant in src/server.ts from 3000 to 8080.
+FORBID: .local_task
+FORBID: bridge
+FORBID: Distribution Analysis
+FORBID: Task distribution

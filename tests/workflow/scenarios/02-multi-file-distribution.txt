@@ -1,0 +1,7 @@
+DESCRIPTION: Multi-part task should produce a distribution table with correct categories
+PROMPT: You are in an existing Node.js project with package.json and src/ already set up. Implement four things: (1) a config parser in src/config.ts that reads YAML files, (2) a test suite for the config parser in src/config.test.ts, (3) a database migration runner in src/db/migrate.ts that applies SQL migrations in order, and (4) update the auth middleware in src/auth/guard.ts to validate JWT signatures and enforce role-based access control.
+EXPECT: DELEGATE
+EXPECT: DIRECTLY
+FORBID: ```typescript
+FORBID: ```javascript
+FORBID: import {
