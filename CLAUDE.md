@@ -26,3 +26,6 @@ exits with code 10), ask the user whether to proceed yourself.
 - One-line fixes, config edits, or single-field changes
 - Exploratory reads, git operations, or reviews
 - The user explicitly says "do it yourself" or "don't delegate"
+
+**HARD RULE — never delegate regardless of complexity:**
+- Auth logic, token/signature validation (JWT, OAuth, HMAC), cryptography, secret handling, or input validation at trust boundaries. Local models are not auditable and must not touch security-critical code.

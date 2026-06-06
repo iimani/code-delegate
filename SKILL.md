@@ -79,9 +79,9 @@ Before writing any task files or running the bridge, classify each sub-task and 
 - Task complexity is within the configured model's known ceiling
 
 ### Implement directly (Claude) when:
+- **HARD RULE — never delegate:** any task involving auth logic, token/signature validation (JWT, OAuth, HMAC), cryptography, secret handling, or input validation at trust boundaries. These must always be implemented directly. Local models are not auditable and must not touch security-critical code paths.
 - Requires multi-file reasoning where correctness depends on cross-file invariants
 - Involves complex type systems where compiler error chains require inference (TS generics, Swift concurrency, Rust lifetimes)
-- Security-sensitive: auth logic, crypto, input validation at trust boundaries
 - Architectural change that ripples across the codebase
 - High risk of silent breakage (shared interfaces, database schema migrations)
 - The task is shorter to do directly than to specify precisely enough for a local model
@@ -201,10 +201,11 @@ If the bridge returns `"status": "aborted"`, the watcher killed the agent due to
 
 1. **Tell the user** what happened, including the abort reason from `message` (e.g. "loop: 8 failures matching 'build commands failed'").
 2. **Inspect the partial work**: run `git diff main..<branch>` in the worktree to see what the agent managed to produce before being killed.
-3. **Take over directly** — do not ask, do not re-delegate. Read the original task spec (`.local_task_<slug>.md` still exists) and the partial diff, then implement the remaining work yourself using your own tools. The agent's partial changes may be usable as a starting point or may need to be reverted first — read the diff and decide.
+3. **Take over the aborted task directly** — do not ask, do not re-delegate *this task*. Read the original task spec (`.local_task_<slug>.md` still exists) and the partial diff, then implement the remaining work for **this task only** using your own tools. The agent's partial changes may be usable as a starting point or may need to be reverted first — read the diff and decide.
 4. After completing the implementation, run the test gate manually to verify, then clean up: `bridge.sh --cleanup <slug>`.
+5. **Re-evaluate remaining tasks independently.** An abort on one task does NOT mean all remaining tasks should be implemented directly. For each remaining task, apply the Distribution Analysis criteria again: if the abort was caused by model incapability with the task's specific domain (e.g. a Swift concurrency API, complex type system), consider routing similar remaining tasks to a larger model or implementing them directly — but decide per task. Simple boilerplate tasks should still be delegated.
 
-The rationale: if a local model doom-looped on a task, re-delegating will produce the same result. Take over and finish it.
+The rationale: if a local model doom-looped on a task, re-delegating *that task* will produce the same result. But other tasks in the plan have their own complexity profiles and should not be penalised by one task's failure.
 
 ## Notes
 - Do not write massive blocks of code directly if this skill is available.

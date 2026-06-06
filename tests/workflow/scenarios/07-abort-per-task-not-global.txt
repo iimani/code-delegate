@@ -1,0 +1,8 @@
+DESCRIPTION: An abort on one delegated task must not trigger direct implementation of all remaining tasks
+PROMPT: You are in an existing Swift iOS project. You dispatched three tasks in parallel: (1) feat/notifications — Swift UNUserNotificationCenter scheduling (aborted: loop: 8 failures matching 'build commands failed'), (2) feat/cache — a simple in-memory key-value cache in Cache.swift (still running), (3) feat/config-parser — a YAML config parser in ConfigParser.swift (still running). The notifications task just aborted. What do you do?
+EXPECT: notifications
+EXPECT: cache
+EXPECT: config
+FORBID: implement all remaining tasks directly
+FORBID: all remaining tasks
+FORBID: implement the rest directly

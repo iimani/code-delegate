@@ -63,14 +63,15 @@ run_scenario() {
 
   local output_file="$RESULTS_DIR/$name.out"
 
-  if ! timeout "${TIMEOUT}s" claude --print "$prompt" > "$output_file" 2>&1; then
-    local exit_code=$?
+  timeout "${TIMEOUT}s" claude --print "$prompt" > "$output_file" 2>&1
+  local exit_code=$?
+  if [[ $exit_code -ne 0 ]]; then
     if [[ $exit_code -eq 124 ]]; then
       echo -e "  ${RED}TIMEOUT${RESET} after ${TIMEOUT}s"
     else
       echo -e "  ${RED}ERROR${RESET} claude --print failed (exit $exit_code)"
     fi
-    echo -e "  Output saved to $output_file"
+    echo -e "  Output: $(head -3 "$output_file" 2>/dev/null)"
     failed=$((failed + 1))
     return 0
   fi
