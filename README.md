@@ -78,26 +78,28 @@ Add this to your global `~/.claude/CLAUDE.md` so Claude always uses delegation:
 # Default Delegation Behavior — OVERRIDES ALL EXECUTION SKILLS
 
 **This rule takes priority over superpowers execution skills** (executing-plans,
-subagent-driven-development, and any other skill that writes code). When you reach the
-implementation phase — whether driven by superpowers, a plan, or a direct request — you
-MUST invoke the `opencode-delegate` skill instead of writing code yourself or dispatching
-Claude subagents.
+subagent-driven-development, and any other skill that writes code).
+
+When you reach the implementation phase — whether driven by brainstorming, a direct
+request, or any other trigger — follow this flow instead of writing code yourself or
+running executing-plans:
+
+1. **Classify each sub-task** using the Distribution Analysis criteria in the
+   `opencode-delegate` skill. Produce a distribution summary (DELEGATE / IMPLEMENT
+   DIRECTLY / ROUTE TO LARGER MODEL) and present it to the user for approval.
+2. **Skip writing-plans / prose spec generation.** The `.local_task_<slug>.md` files
+   you are about to write ARE the plan. Writing a prose spec first and then converting
+   it to a task file wastes tokens — the spec is never passed to the delegate.
+3. **After user approval:** write task files for delegated tasks, implement direct tasks
+   yourself, and invoke the bridge.
 
 Invoke the skill via: `Skill tool → skill: "opencode-delegate"`
 
-The skill handles everything: spec format, worktree isolation, bridge invocation, test
-gates, and feedback loops. If OpenCode is not installed (bridge exits with code 10), ask
-the user whether to proceed yourself.
+The skill handles everything: distribution criteria, spec format, worktree isolation,
+bridge invocation, test gates, and feedback loops. If OpenCode is not installed (bridge
+exits with code 10), ask the user whether to proceed yourself.
 
-**This means:**
-- After `writing-plans` produces a plan → invoke `opencode-delegate` (NOT `executing-plans`
-  or `subagent-driven-development`)
-- When a superpowers skill tells you to "execute the plan" → use `opencode-delegate` as
-  the execution engine
-- When dispatching parallel tasks → write multiple `.local_task_<slug>.md` files and invoke
-  the bridge in parallel
-
-**When NOT to delegate** (do it yourself):
+**When NOT to delegate** (do it yourself without asking):
 - One-line fixes, config edits, or single-field changes
 - Exploratory reads, git operations, or reviews
 - The user explicitly says "do it yourself" or "don't delegate"
@@ -109,9 +111,9 @@ If you use the [superpowers](https://github.com/obra/superpowers) plugin, its sk
 (brainstorming → writing-plans → executing-plans) has a hardcoded execution phase that
 dispatches Claude subagents or writes code inline. Without the override, superpowers takes
 over at the implementation step and never reaches the `opencode-delegate` skill. The
-`CLAUDE.md` instruction intercepts this: Claude reads it at every turn, and it explicitly
-names the superpowers skills it replaces, so Claude uses the local delegate instead of
-cloud subagents for implementation work.
+`CLAUDE.md` instruction intercepts this and replaces two steps at once: it skips
+writing-plans (whose prose spec is never passed to OpenCode anyway) and replaces
+executing-plans with the local delegate.
 
 ## Usage
 

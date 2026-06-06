@@ -67,10 +67,53 @@ Small models (≤9B) handle single-file, well-scoped tasks reliably. For tasks i
 - Bullet points only, no prose paragraphs
 - **NEVER write code blocks or function bodies in the spec.** Describe WHAT to build, not HOW. The delegate writes the code — that's the whole point. If you're pasting Swift/TypeScript/Python into the task file, you're doing the delegate's job and wasting tokens twice. Say "add a `calendar(start:end:)` method that fetches from the `/calendar` endpoint with ISO8601 date query params" — don't write the function.
 
+## Distribution Analysis
+
+Before writing any task files or running the bridge, classify each sub-task and present a distribution summary to the user. Wait for approval before proceeding.
+
+### Delegate to OpenCode when:
+- Single-file or tightly bounded (≤2–3 files, no cross-cutting concerns)
+- Boilerplate-heavy: CRUD handlers, test suites, serialization, config parsing
+- No complex type reasoning required (no TypeScript generics, no Swift concurrency, no Rust lifetimes)
+- Failure is recoverable and low-risk (adding a feature, not modifying critical shared state)
+- Task complexity is within the configured model's known ceiling
+
+### Implement directly (Claude) when:
+- Requires multi-file reasoning where correctness depends on cross-file invariants
+- Involves complex type systems where compiler error chains require inference (TS generics, Swift concurrency, Rust lifetimes)
+- Security-sensitive: auth logic, crypto, input validation at trust boundaries
+- Architectural change that ripples across the codebase
+- High risk of silent breakage (shared interfaces, database schema migrations)
+- The task is shorter to do directly than to specify precisely enough for a local model
+
+### Route to a more capable model when:
+- Task scope exceeds the small model's ceiling but is still delegatable
+- Complex build feedback loops are expected — set the `Model:` header to a larger local model or Claude API
+
+### Distribution summary (show this to the user before any execution)
+
+```
+Task distribution:
+
+  DELEGATE (OpenCode)
+  ├─ feat/logger         — new file, boilerplate JSON logger, no type complexity
+  └─ feat/config-parser  — single file, straightforward struct parsing
+
+  IMPLEMENT DIRECTLY (Claude)
+  └─ refactor/auth       — touches 6 files, security-sensitive, cross-file invariants
+
+  ROUTE TO LARGER MODEL
+  └─ feat/generics-util  — TypeScript conditional types, likely to doom-loop on qwen3.5-9b
+
+Proceed?
+```
+
+Only after user approval: write task files for delegated tasks, implement direct tasks yourself, and invoke the bridge.
+
 ## Execution Protocol
 
 ### Single task
-1. **Plan**: Formulate your architectural plan and display it to the user.
+1. **Distribute**: Classify the task using the criteria above, display the distribution summary, and wait for user approval. The task file you are about to write IS the plan — do not write a separate prose spec first, it won't be passed to the delegate and only wastes tokens.
 2. **Write Spec**: Save instructions to `.local_task_<slug>.md` in the project root.
 3. **Execute**: Run `~/.claude/skills/opencode-delegate/bridge.sh <slug>`
 4. **Parse Output**: The last stdout line is a JSON status object.
