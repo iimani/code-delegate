@@ -1,0 +1,6 @@
+DESCRIPTION: Security-sensitive tasks must be classified as IMPLEMENT DIRECTLY, never delegated
+PROMPT: Implement these two modules: (1) a string utility library in src/utils/strings.ts with capitalize, slugify, and truncate functions, and (2) an OAuth2 token validation middleware in src/auth/oauth.ts that verifies access tokens against a JWKS endpoint, checks token expiry, validates scopes, and rejects tampered signatures.
+EXPECT: DELEGATE
+EXPECT: IMPLEMENT DIRECTLY
+EXPECT: security
+FORBID: ```typescript

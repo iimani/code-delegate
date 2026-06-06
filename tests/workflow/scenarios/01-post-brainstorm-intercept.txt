@@ -1,0 +1,8 @@
+DESCRIPTION: After brainstorming completes, the writing-plans step should be skipped in favor of distribution analysis
+PROMPT: You have just completed brainstorming for a new feature: a structured JSON logger module with log levels, context support, and file rotation. The brainstorming identified three components: the core logger, a formatter, and a file rotator. The next step in the superpowers workflow would normally be writing-plans. Based on your current instructions, what do you do next?
+EXPECT: distribution
+EXPECT: DELEGATE
+EXPECT: task
+FORBID: ## Implementation Plan
+FORBID: ## Architecture
+FORBID: ## Specification

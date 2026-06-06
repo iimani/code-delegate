@@ -67,10 +67,53 @@ Small models (≤9B) handle single-file, well-scoped tasks reliably. For tasks i
 - Bullet points only, no prose paragraphs
 - **NEVER write code blocks or function bodies in the spec.** Describe WHAT to build, not HOW. The delegate writes the code — that's the whole point. If you're pasting Swift/TypeScript/Python into the task file, you're doing the delegate's job and wasting tokens twice. Say "add a `calendar(start:end:)` method that fetches from the `/calendar` endpoint with ISO8601 date query params" — don't write the function.
 
+## Distribution Analysis
+
+Before writing any task files or running the bridge, classify each sub-task and present a distribution summary to the user. Wait for approval before proceeding.
+
+### Delegate to OpenCode when:
+- Single-file or tightly bounded (≤2–3 files, no cross-cutting concerns)
+- Boilerplate-heavy: CRUD handlers, test suites, serialization, config parsing
+- No complex type reasoning required (no TypeScript generics, no Swift concurrency, no Rust lifetimes)
+- Failure is recoverable and low-risk (adding a feature, not modifying critical shared state)
+- Task complexity is within the configured model's known ceiling
+
+### Implement directly (Claude) when:
+- **HARD RULE — never delegate:** any task involving auth logic, token/signature validation (JWT, OAuth, HMAC), cryptography, secret handling, or input validation at trust boundaries. These must always be implemented directly. Local models are not auditable and must not touch security-critical code paths.
+- Requires multi-file reasoning where correctness depends on cross-file invariants
+- Involves complex type systems where compiler error chains require inference (TS generics, Swift concurrency, Rust lifetimes)
+- Architectural change that ripples across the codebase
+- High risk of silent breakage (shared interfaces, database schema migrations)
+- The task is shorter to do directly than to specify precisely enough for a local model
+
+### Route to a more capable model when:
+- Task scope exceeds the small model's ceiling but is still delegatable
+- Complex build feedback loops are expected — set the `Model:` header to a larger local model or Claude API
+
+### Distribution summary (show this to the user before any execution)
+
+```
+Task distribution:
+
+  DELEGATE (OpenCode)
+  ├─ feat/logger         — new file, boilerplate JSON logger, no type complexity
+  └─ feat/config-parser  — single file, straightforward struct parsing
+
+  IMPLEMENT DIRECTLY (Claude)
+  └─ refactor/auth       — touches 6 files, security-sensitive, cross-file invariants
+
+  ROUTE TO LARGER MODEL
+  └─ feat/generics-util  — TypeScript conditional types, likely to doom-loop on qwen3.5-9b
+
+Proceed?
+```
+
+Only after user approval: write task files for delegated tasks, implement direct tasks yourself, and invoke the bridge.
+
 ## Execution Protocol
 
 ### Single task
-1. **Plan**: Formulate your architectural plan and display it to the user.
+1. **Distribute**: Classify the task using the criteria above, display the distribution summary, and wait for user approval. The task file you are about to write IS the plan — do not write a separate prose spec first, it won't be passed to the delegate and only wastes tokens.
 2. **Write Spec**: Save instructions to `.local_task_<slug>.md` in the project root.
 3. **Execute**: Run `~/.claude/skills/opencode-delegate/bridge.sh <slug>`
 4. **Parse Output**: The last stdout line is a JSON status object.
@@ -158,10 +201,11 @@ If the bridge returns `"status": "aborted"`, the watcher killed the agent due to
 
 1. **Tell the user** what happened, including the abort reason from `message` (e.g. "loop: 8 failures matching 'build commands failed'").
 2. **Inspect the partial work**: run `git diff main..<branch>` in the worktree to see what the agent managed to produce before being killed.
-3. **Take over directly** — do not ask, do not re-delegate. Read the original task spec (`.local_task_<slug>.md` still exists) and the partial diff, then implement the remaining work yourself using your own tools. The agent's partial changes may be usable as a starting point or may need to be reverted first — read the diff and decide.
+3. **Take over the aborted task directly** — do not ask, do not re-delegate *this task*. Read the original task spec (`.local_task_<slug>.md` still exists) and the partial diff, then implement the remaining work for **this task only** using your own tools. The agent's partial changes may be usable as a starting point or may need to be reverted first — read the diff and decide.
 4. After completing the implementation, run the test gate manually to verify, then clean up: `bridge.sh --cleanup <slug>`.
+5. **Re-evaluate remaining tasks independently.** An abort on one task does NOT mean all remaining tasks should be implemented directly. For each remaining task, apply the Distribution Analysis criteria again: if the abort was caused by model incapability with the task's specific domain (e.g. a Swift concurrency API, complex type system), consider routing similar remaining tasks to a larger model or implementing them directly — but decide per task. Simple boilerplate tasks should still be delegated.
 
-The rationale: if a local model doom-looped on a task, re-delegating will produce the same result. Take over and finish it.
+The rationale: if a local model doom-looped on a task, re-delegating *that task* will produce the same result. But other tasks in the plan have their own complexity profiles and should not be penalised by one task's failure.
 
 ## Notes
 - Do not write massive blocks of code directly if this skill is available.

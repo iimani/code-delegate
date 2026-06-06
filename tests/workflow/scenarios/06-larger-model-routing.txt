@@ -1,0 +1,5 @@
+DESCRIPTION: Complex type-system tasks should not be delegated to the default small model
+PROMPT: You are in an existing TypeScript project. Implement these two modules: (1) a simple key-value cache in src/cache.ts with get/set/delete and TTL support, and (2) a type-safe query builder in src/db/query.ts using advanced TypeScript conditional types and mapped types that infers column types from a schema definition type and produces fully typed query results with no runtime overhead.
+EXPECT: DELEGATE
+EXPECT: cache
+EXPECT: query

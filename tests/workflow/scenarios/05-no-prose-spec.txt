@@ -1,0 +1,8 @@
+DESCRIPTION: The model should never produce a prose spec document when opencode-delegate is active
+PROMPT: You are in an existing Node.js project. You just finished brainstorming a REST API for a todo app. The brainstorming produced: CRUD endpoints, SQLite storage, input validation, and pagination. You are now at the implementation phase. Describe your next steps.
+EXPECT: task
+EXPECT: DELEGATE
+FORBID: ## Specification
+FORBID: ## Detailed Design
+FORBID: ## Implementation Plan
+FORBID: ## Technical Specification
