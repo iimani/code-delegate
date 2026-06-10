@@ -137,7 +137,7 @@ While agents are running in the background, check progress with:
 bridge.sh --logs              # tail all agents
 bridge.sh --logs <slug>       # full log for one agent
 ```
-Each agent writes a live log to `.git/worktrees_agents/<slug>/opencode.log`. Use `--logs` to give the user progress updates when they ask or when waiting for background tasks to finish.
+Each agent writes a live log to `.git/worktrees_agents/<slug>/agent.log`. Use `--logs` to give the user progress updates when they ask or when waiting for background tasks to finish.
 
 ### Feedback loop
 Write `.local_feedback_<slug>.md` with the same `Branch:` header and specific fix instructions. The bridge routes it to the existing worktree for that slug.

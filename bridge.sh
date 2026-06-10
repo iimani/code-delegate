@@ -1,5 +1,5 @@
 #!/bin/bash
-# ~/.claude/skills/opencode-delegate/bridge.sh
+# delegate/bridge.sh
 # Backend-agnostic dispatcher for delegated worktree execution
 #
 # Usage:
@@ -7,6 +7,7 @@
 #   bridge.sh --status            List active agent worktrees
 #   bridge.sh --cleanup <slug>    Remove a worktree after branch is approved
 #   bridge.sh --logs [slug]       Tail logs for one or all running agents
+#   bridge.sh --backends          List installed backends and availability
 
 set -euo pipefail
 
@@ -38,12 +39,56 @@ resolve_backend() {
     local file="$1"
     local backend
     backend="$(parse_header "$file" "Backend")"
-    backend="${backend:-opencode}"
+
+    if [ -z "$backend" ] || [ "$backend" = "auto" ]; then
+        backend="$(auto_select_backend "$file")"
+        if [ -z "$backend" ]; then
+            die "No available backend found. Install opencode, claude, or codex CLI."
+        fi
+        echo "Auto-selected backend: $backend" >&2
+    fi
+
     local runner="$(dirname "$0")/backends/${backend}/run.sh"
     if [ ! -f "$runner" ]; then
         die "Unknown backend '${backend}': no runner found at backends/${backend}/run.sh"
     fi
     echo "$backend"
+}
+
+auto_select_backend() {
+    local instruction_file="$1"
+    local skill_dir
+    skill_dir="$(dirname "$0")"
+
+    local files_header
+    files_header="$(parse_header "$instruction_file" "Files")"
+    local file_count=1
+    if [ -n "$files_header" ]; then
+        file_count=$(echo "$files_header" | tr ',' '\n' | wc -l | tr -d ' ')
+    fi
+
+    for backend in opencode claude codex; do
+        local config="${skill_dir}/backends/${backend}/config.yaml"
+        [ -f "$config" ] || continue
+
+        local check_cmd
+        check_cmd="$(grep '^check_command:' "$config" | sed 's/^check_command:[[:space:]]*//')"
+        if [ -n "$check_cmd" ] && ! eval "$check_cmd" >/dev/null 2>&1; then
+            continue
+        fi
+
+        if [ "$file_count" -gt 3 ]; then
+            if grep -q 'cross_file: false' "$config"; then
+                continue
+            fi
+        fi
+
+        echo "$backend"
+        return 0
+    done
+
+    echo ""
+    return 1
 }
 
 check_backend_available() {
@@ -83,10 +128,14 @@ handle_status() {
         slug="$(basename "$dir")"
         branch="$(git -C "$dir" branch --show-current 2>/dev/null || echo "unknown")"
         last_log=""
-        if [ -f "${dir}opencode.log" ]; then
-            last_log=" | $(tail -1 "${dir}opencode.log")"
+        if [ -f "${dir}agent.log" ]; then
+            last_log=" | $(tail -1 "${dir}agent.log")"
         fi
-        echo "  $slug -> $branch$last_log"
+        backend=""
+        if [ -f "${dir}.bridge_backend" ]; then
+            backend=" [$(cat "${dir}.bridge_backend")]"
+        fi
+        echo "  $slug -> $branch$backend$last_log"
     done
     exit 0
 }
@@ -181,17 +230,36 @@ if [ "${1:-}" = "--cleanup" ]; then
     handle_cleanup "$2"
 fi
 
+if [ "${1:-}" = "--backends" ]; then
+    skill_dir="$(dirname "$0")"
+    echo "Installed backends:"
+    for config in "$skill_dir"/backends/*/config.yaml; do
+        [ -f "$config" ] || continue
+        dir="$(dirname "$config")"
+        name="$(basename "$dir")"
+        check_cmd="$(grep '^check_command:' "$config" | sed 's/^check_command:[[:space:]]*//')"
+        if [ -n "$check_cmd" ] && eval "$check_cmd" >/dev/null 2>&1; then
+            available="YES"
+        else
+            available="NO"
+        fi
+        desc="$(grep '^description:' "$config" | sed 's/^description:[[:space:]]*//')"
+        echo "  $name ($available) — $desc"
+    done
+    exit 0
+fi
+
 if [ "${1:-}" = "--logs" ]; then
     slug="${2:-}"
     if [ -n "$slug" ]; then
-        log="${AGENTS_DIR}/${slug}/opencode.log"
+        log="${AGENTS_DIR}/${slug}/agent.log"
         if [ -f "$log" ]; then
             cat "$log"
         else
             echo "No log found for slug: $slug"
         fi
     else
-        for log in "$AGENTS_DIR"/*/opencode.log; do
+        for log in "$AGENTS_DIR"/*/agent.log; do
             [ -f "$log" ] || continue
             slug="$(basename "$(dirname "$log")")"
             echo "=== $slug ==="
@@ -203,7 +271,7 @@ if [ "${1:-}" = "--logs" ]; then
 fi
 
 SLUG="${1:-}"
-[ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug]"
+[ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug] | --backends"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     die "Not inside a Git repository"
@@ -269,10 +337,12 @@ if [ "$MODE" = "task" ]; then
     fi
 
     cp "$INSTRUCTION_FILE" "${WORKTREE_PATH}/.local_task.md"
+    echo "$BACKEND" > "${WORKTREE_PATH}/.bridge_backend"
 
 elif [ "$MODE" = "feedback" ]; then
     [ -d "$WORKTREE_PATH" ] || die "No worktree found for slug $SLUG -- cannot apply feedback"
     cp "$INSTRUCTION_FILE" "${WORKTREE_PATH}/.local_feedback.md"
+    echo "$BACKEND" > "${WORKTREE_PATH}/.bridge_backend"
 
     if [ -z "$TEST_CMD" ]; then
         ORIGINAL_TASK=".local_task_${SLUG}.md"
@@ -283,7 +353,7 @@ elif [ "$MODE" = "feedback" ]; then
 fi
 
 SPEC_IN_WORKTREE="${WORKTREE_PATH}/.local_${MODE}.md"
-LOG_FILE="${WORKTREE_PATH}/opencode.log"
+LOG_FILE="${WORKTREE_PATH}/agent.log"
 ABORT_FILE="${WORKTREE_PATH}/.bridge_abort"
 
 rm -f "$ABORT_FILE"
