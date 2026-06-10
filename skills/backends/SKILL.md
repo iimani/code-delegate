@@ -1,6 +1,7 @@
 ---
 name: backends
 description: List installed code-delegate backends, their availability, models, and capabilities
+trigger: /code-delegate:backends
 ---
 
 # Code Delegate Backends

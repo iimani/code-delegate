@@ -101,10 +101,10 @@ Review git diff
 
 | Command | Description |
 |---------|-------------|
-| `/delegate` | Main command — distribution analysis + task execution |
-| `/delegate:status` | Show active agent worktrees and progress |
-| `/delegate:backends` | List installed backends and availability |
-| `/delegate:cleanup <slug>` | Remove a worktree after merging |
+| `/code-delegate` | Main command — distribution analysis + task execution |
+| `/code-delegate:status` | Show active agent worktrees and progress |
+| `/code-delegate:backends` | List installed backends and availability |
+| `/code-delegate:cleanup <slug>` | Remove a worktree after merging |
 
 ### Examples
 

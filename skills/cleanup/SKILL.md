@@ -2,6 +2,7 @@
 name: cleanup
 description: Remove a code-delegate agent worktree after its branch has been approved or merged
 argument-hint: <slug> — the branch slug to clean up
+trigger: /code-delegate:cleanup
 ---
 
 # Code Delegate Cleanup

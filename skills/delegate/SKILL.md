@@ -1,7 +1,7 @@
 ---
 name: delegate
 description: Delegate code implementation to local or cloud AI agents using isolated Git worktrees for parallel execution.
-trigger: /delegate
+trigger: /code-delegate
 ---
 
 # Code Delegate
