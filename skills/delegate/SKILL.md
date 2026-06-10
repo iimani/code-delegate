@@ -1,6 +1,7 @@
 ---
+name: delegate
 description: Delegate code implementation to local or cloud AI agents using isolated Git worktrees for parallel execution.
-argument-hint: Optional task description or plan reference
+trigger: /delegate
 ---
 
 # Code Delegate

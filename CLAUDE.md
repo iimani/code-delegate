@@ -16,7 +16,7 @@ running executing-plans:
 3. **After user approval:** write task files for delegated tasks, implement direct tasks
    yourself, and invoke the bridge.
 
-Invoke the skill via: `Skill tool → skill: "code-delegate"`
+Invoke the skill via: `Skill tool → skill: "code-delegate:delegate"` (or `/delegate`)
 
 The skill handles everything: distribution criteria, spec format, worktree isolation,
 bridge invocation, test gates, and feedback loops. If a backend is not installed (bridge
