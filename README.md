@@ -1,4 +1,4 @@
-# Delegate — Multi-Backend Code Delegation Plugin
+# Code Delegate — Multi-Backend Code Delegation Plugin
 
 A Claude Code plugin that delegates token-heavy implementation tasks to local or cloud AI agents. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents across different backends.
 
@@ -42,7 +42,7 @@ Review git diff
 ### Install the plugin
 
 ```bash
-git clone https://github.com/iimani/opencode-delegate.git ~/.claude/skills/delegate
+git clone https://github.com/iimani/code-delegate.git ~/.claude/skills/code-delegate
 ```
 
 Claude Code auto-discovers global skills from `~/.claude/skills/`.
@@ -68,8 +68,8 @@ npm install -g @openai/codex
 Add to your `~/.claude/CLAUDE.md`:
 
 ```markdown
-When you reach the implementation phase, invoke the `delegate` skill instead of
-writing code yourself. Invoke via: `Skill tool → skill: "delegate"`
+When you reach the implementation phase, invoke the `code-delegate` skill instead of
+writing code yourself. Invoke via: `Skill tool → skill: "code-delegate"`
 ```
 
 ## Usage
@@ -87,10 +87,10 @@ writing code yourself. Invoke via: `Skill tool → skill: "delegate"`
 
 | Command | Description |
 |---------|-------------|
-| `/delegate` | Main command — distribution analysis + task execution |
-| `/delegate:status` | Show active agent worktrees and progress |
-| `/delegate:backends` | List installed backends and availability |
-| `/delegate:cleanup <slug>` | Remove a worktree after merging |
+| `/code-delegate` | Main command — distribution analysis + task execution |
+| `/code-delegate:status` | Show active agent worktrees and progress |
+| `/code-delegate:backends` | List installed backends and availability |
+| `/code-delegate:cleanup <slug>` | Remove a worktree after merging |
 
 ### Bridge CLI
 
@@ -133,13 +133,13 @@ One sentence.
 ## Project Structure
 
 ```
-delegate/
+code-delegate/
 ├── commands/
-│   └── delegate.md          # Main command: distribution + execution
+│   └── code-delegate.md     # Main command: distribution + execution
 ├── skills/
-│   ├── status.md            # delegate:status
-│   ├── backends.md          # delegate:backends
-│   └── cleanup.md           # delegate:cleanup
+│   ├── status.md            # code-delegate:status
+│   ├── backends.md          # code-delegate:backends
+│   └── cleanup.md           # code-delegate:cleanup
 ├── backends/
 │   ├── opencode/            # Local LLM via OpenCode CLI
 │   │   ├── run.sh

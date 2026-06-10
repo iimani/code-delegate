@@ -12,7 +12,7 @@ if [[ ! -f "$GLOBAL_CLAUDE_MD" ]]; then
   cp "$SKILL_ROOT/CLAUDE.md" "$GLOBAL_CLAUDE_MD"
 fi
 
-SKILL_DEST="$HOME/.claude/skills/delegate"
+SKILL_DEST="$HOME/.claude/skills/code-delegate"
 if [[ ! -d "$SKILL_DEST" ]]; then
   echo "Installing skill to $SKILL_DEST"
   cp -r "$SKILL_ROOT" "$SKILL_DEST"
@@ -110,7 +110,7 @@ run_scenario() {
 
 echo ""
 echo "================================================"
-echo " delegate workflow validation"
+echo " code-delegate workflow validation"
 echo "================================================"
 echo ""
 

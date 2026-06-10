@@ -3,7 +3,7 @@ description: Delegate code implementation to local or cloud AI agents using isol
 argument-hint: Optional task description or plan reference
 ---
 
-# Delegate
+# Code Delegate
 
 This command allows Claude Code to act as a high-level Architect and Code Reviewer, offloading token-heavy coding tasks to local or cloud AI agents. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents. Available backends: opencode (local, free), claude (Anthropic API), codex (OpenAI).
 

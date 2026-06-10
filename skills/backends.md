@@ -1,9 +1,9 @@
 ---
 name: backends
-description: List installed delegate backends, their availability, models, and capabilities
+description: List installed code-delegate backends, their availability, models, and capabilities
 ---
 
-# Delegate Backends
+# Code Delegate Backends
 
 List all available delegation backends and their status.
 

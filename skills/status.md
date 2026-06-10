@@ -1,11 +1,11 @@
 ---
 name: status
-description: Show active delegate agent worktrees, their backends, branches, and last log line
+description: Show active code-delegate agent worktrees, their backends, branches, and last log line
 ---
 
-# Delegate Status
+# Code Delegate Status
 
-Show the user what delegate agents are currently running or have completed.
+Show the user what code-delegate agents are currently running or have completed.
 
 Run: `bridge.sh --status`
 

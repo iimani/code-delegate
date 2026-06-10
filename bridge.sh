@@ -1,5 +1,5 @@
 #!/bin/bash
-# delegate/bridge.sh
+# code-delegate/bridge.sh
 # Backend-agnostic dispatcher for delegated worktree execution
 #
 # Usage:

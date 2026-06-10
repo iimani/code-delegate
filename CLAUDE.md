@@ -8,7 +8,7 @@ request, or any other trigger — follow this flow instead of writing code yours
 running executing-plans:
 
 1. **Classify each sub-task** using the Distribution Analysis criteria in the
-   `delegate` skill. Produce a distribution summary (DELEGATE / IMPLEMENT
+   `code-delegate` skill. Produce a distribution summary (DELEGATE / IMPLEMENT
    DIRECTLY / ROUTE TO LARGER MODEL) and present it to the user for approval.
 2. **Skip writing-plans / prose spec generation.** The `.local_task_<slug>.md` files
    you are about to write ARE the plan. Writing a prose spec first and then converting
@@ -16,7 +16,7 @@ running executing-plans:
 3. **After user approval:** write task files for delegated tasks, implement direct tasks
    yourself, and invoke the bridge.
 
-Invoke the skill via: `Skill tool → skill: "delegate"`
+Invoke the skill via: `Skill tool → skill: "code-delegate"`
 
 The skill handles everything: distribution criteria, spec format, worktree isolation,
 bridge invocation, test gates, and feedback loops. If a backend is not installed (bridge
