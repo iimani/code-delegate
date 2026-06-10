@@ -80,8 +80,14 @@ Before writing any task files or running the bridge, classify each sub-task and 
 - Failure is recoverable and low-risk (adding a feature, not modifying critical shared state)
 - Task complexity is within the configured model's known ceiling
 
-### Implement directly (Claude) when:
-- **HARD RULE — never delegate:** any task involving auth logic, token/signature validation (JWT, OAuth, HMAC), cryptography, secret handling, or input validation at trust boundaries. These must always be implemented directly. Local models are not auditable and must not touch security-critical code paths.
+### Security-sensitive tasks (auth, crypto, secrets, trust boundaries):
+- **NEVER delegate to local models** (opencode) — local models are not auditable and must not touch security-critical code
+- **MAY delegate to security-approved backend+model combos** — run `bridge.sh --security-check <backend> <model>` to verify. Currently only `claude/opus` is approved.
+- If the user's current backend+model is not security-approved, show a suggestion: "This task is security-sensitive. [current model] is not approved — suggest delegating with `Backend: claude` / `Model: opus`, or I can implement it directly."
+- If no security-approved backend+model is available, implement directly
+
+### Implement directly (Claude orchestrator) when:
+- Security-sensitive task AND no approved backend+model is available or the user declines escalation
 - Requires multi-file reasoning where correctness depends on cross-file invariants
 - Involves complex type systems where compiler error chains require inference (TS generics, Swift concurrency, Rust lifetimes)
 - Architectural change that ripples across the codebase
@@ -90,6 +96,7 @@ Before writing any task files or running the bridge, classify each sub-task and 
 
 ### Route to a more capable model when:
 - Task scope exceeds the local model's ceiling but is still delegatable — set `Backend: claude` with `Model: opus`, or use a larger local model via opencode
+- Security-sensitive task with a non-approved model — escalate to an approved model (e.g. `claude/opus`)
 
 ### Model selection
 
@@ -108,15 +115,18 @@ Task distribution:
   ├─ feat/logger         [opencode]       — new file, boilerplate JSON logger
   └─ feat/config-parser  [opencode]       — single file, straightforward struct parsing
 
+  DELEGATE (security-approved model)
+  └─ feat/jwt-validation [claude / opus]  — auth logic, security-sensitive (opus approved)
+
   IMPLEMENT DIRECTLY (Claude orchestrator)
-  └─ refactor/auth       — touches 6 files, security-sensitive, cross-file invariants
+  └─ refactor/shared-db  — touches 6 files, cross-file invariants, schema migration
 
   DELEGATE (larger model)
   └─ feat/generics-util  [claude / opus]  — TypeScript conditional types, needs strong type reasoning
 
 Available models:
   opencode:  (dynamic) qwen-9b, deepseek-33b
-  claude:    haiku, sonnet (default), opus
+  claude:    haiku, sonnet (default), opus [security: opus]
   codex:     (unavailable)
 
 Override model selections, or proceed with defaults?

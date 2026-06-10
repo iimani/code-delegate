@@ -9,6 +9,7 @@
 #   bridge.sh --logs [slug]       Tail logs for one or all running agents
 #   bridge.sh --backends          List installed backends and availability
 #   bridge.sh --suggest <json>    Suggest fallback backend+model for a failed task
+#   bridge.sh --security-check <backend> <model>  Check if backend+model is approved for security-sensitive tasks
 
 set -euo pipefail
 
@@ -416,15 +417,23 @@ if [ "${1:-}" = "--models" ]; then
             echo "$name:"
             # Parse alias/description blocks from model entries (indented)
             awk -v defmodel="$default_model" '
-                /^ *- alias:/ { alias=$NF; in_model=1 }
-                in_model && /^ *description:/ {
-                    sub(/^ *description: *"?/, ""); sub(/"$/, "")
-                    desc=$0
-                    marker=""
-                    if (alias == defmodel) marker=" (default)"
-                    print "  " alias marker " — " desc
-                    alias=""; in_model=0
+                function flush() {
+                    if (alias != "" && desc != "") {
+                        marker=""
+                        if (alias == defmodel) marker=" (default)"
+                        print "  " alias marker sec " — " desc
+                    }
+                    alias=""; desc=""; sec=""
                 }
+                /^ *- alias:/ { flush(); alias=$NF }
+                /^ *security_ok: *true/ { if (alias != "") sec=" [security-approved]" }
+                /^ *description:/ {
+                    if (alias != "") {
+                        sub(/^ *description: *"?/, ""); sub(/"$/, "")
+                        desc=$0
+                    }
+                }
+                END { flush() }
             ' "$config"
         fi
     done
@@ -439,6 +448,47 @@ if [ "${1:-}" = "--suggest" ]; then
     sg_model="$(echo "$sg_input" | sed -n 's/.*"model" *: *"\([^"]*\)".*/\1/p')"
     sg_task="$(echo "$sg_input" | sed -n 's/.*"task_file" *: *"\([^"]*\)".*/\1/p')"
     suggest_fallback "$sg_reason" "$sg_backend" "$sg_model" "$sg_task"
+    exit 0
+fi
+
+if [ "${1:-}" = "--security-check" ]; then
+    [ -n "${2:-}" ] || die "--security-check requires: <backend> <model>"
+    sc_backend="$2"
+    sc_model="${3:-}"
+    sc_config="$(dirname "$0")/backends/${sc_backend}/config.yaml"
+    if [ ! -f "$sc_config" ]; then
+        printf '{"approved":false,"reason":"unknown backend: %s"}\n' "$sc_backend"
+        exit 0
+    fi
+    if [ -z "$sc_model" ]; then
+        sc_model="$(grep '^default_model:' "$sc_config" | sed 's/^default_model:[[:space:]]*//' | tr -d '"')"
+    fi
+    approved="$(awk -v model="$sc_model" '
+        /^ *- alias:/ { alias=$NF }
+        /^ *id:/ { id=$NF }
+        /^ *security_ok: *true/ { if (alias == model || id == model) { print "true"; exit } }
+        /^ *security_ok: *false/ { if (alias == model || id == model) { print "false"; exit } }
+    ' "$sc_config" 2>/dev/null)"
+    if [ "$approved" = "true" ]; then
+        printf '{"approved":true,"backend":"%s","model":"%s"}\n' "$sc_backend" "$sc_model"
+    else
+        # Find the first security-approved model across all backends
+        skill_dir="$(dirname "$0")"
+        suggestion=""
+        for b in claude codex opencode; do
+            cfg="$skill_dir/backends/$b/config.yaml"
+            [ -f "$cfg" ] || continue
+            sec_model="$(awk '
+                /^ *- alias:/ { alias=$NF }
+                /^ *security_ok: *true/ { print alias; exit }
+            ' "$cfg" 2>/dev/null)"
+            if [ -n "$sec_model" ]; then
+                suggestion="$(printf ',"suggested_backend":"%s","suggested_model":"%s"' "$b" "$sec_model")"
+                break
+            fi
+        done
+        printf '{"approved":false,"backend":"%s","model":"%s"%s}\n' "$sc_backend" "${sc_model:-default}" "$suggestion"
+    fi
     exit 0
 fi
 

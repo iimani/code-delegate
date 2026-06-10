@@ -27,5 +27,6 @@ exits with code 10), ask the user whether to try a different backend or proceed 
 - Exploratory reads, git operations, or reviews
 - The user explicitly says "do it yourself" or "don't delegate"
 
-**HARD RULE — never delegate regardless of complexity:**
-- Auth logic, token/signature validation (JWT, OAuth, HMAC), cryptography, secret handling, or input validation at trust boundaries. Local models are not auditable and must not touch security-critical code.
+**SECURITY RULE — tiered delegation for security-sensitive tasks:**
+- **Never delegate to local models** (opencode): auth logic, token/signature validation (JWT, OAuth, HMAC), cryptography, secret handling, or input validation at trust boundaries. Local models are not auditable.
+- **May delegate to security-approved backend+model combos** (currently: `claude/opus`). Run `bridge.sh --security-check <backend> <model>` to verify before delegating. If not approved, suggest escalation or implement directly.
