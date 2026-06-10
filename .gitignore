@@ -1,0 +1,10 @@
+# Task files (generated per-delegation, should not be committed)
+.local_task_*.md
+.local_feedback_*.md
+
+# Test results
+tests/workflow/results/
+
+# OS
+.DS_Store
+Thumbs.db
