@@ -199,7 +199,8 @@ code-delegate/
 │   └── codex/                   # OpenAI Codex CLI
 │       ├── run.sh
 │       └── config.yaml
-├── bridge.sh                    # Backend-agnostic dispatcher
+├── bin/
+│   └── bridge.sh                # Backend-agnostic dispatcher
 ├── CLAUDE.md                    # Claude Code instructions
 ├── AGENTS.md                    # Codex/OpenCode instructions + tool mappings
 └── tests/                       # Workflow validation scenarios
