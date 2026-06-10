@@ -1,0 +1,5 @@
+DESCRIPTION: When a task aborts with a lower-capability model, the bridge should suggest escalating to a higher model within the same backend
+PROMPT: The bridge returned {"status":"aborted","branch":"feat/parser","slug":"feat-parser","worktree":".git/worktrees_agents/feat-parser","test_exit_code":null,"test_command":"","message":"Agent aborted: loop: 8 failures","suggestion":{"action":"escalate_model","backend":"claude","model":"opus","reason":"sonnet failed with claude, escalating to opus"}}. Present the fallback option to the user.
+EXPECT: opus
+EXPECT: retry
+FORBID: implement directly without asking

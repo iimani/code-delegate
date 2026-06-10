@@ -174,38 +174,61 @@ bridge.sh --status
 The bridge prints a JSON object as its final stdout line:
 ```json
 {
-  "status": "pass | fail | error",
+  "status": "pass | fail | error | aborted | no_backend",
   "branch": "feat/logger",
   "slug": "feat-logger",
   "worktree": ".git/worktrees_agents/feat-logger",
   "test_exit_code": 0,
   "test_command": "npm test -- --filter logger",
-  "message": ""
+  "message": "",
+  "suggestion": { "action": "escalate_model", "backend": "claude", "model": "opus", "reason": "..." }
 }
 ```
 
 - `pass` — the agent finished and tests passed (or no test gate)
-- `fail` — the agent finished but test gate failed; worktree preserved for feedback
+- `fail` — the agent finished but test gate failed; worktree preserved for feedback. Includes a `suggestion` field.
 - `error` — bridge-level failure (missing files, git errors, agent crash)
-- `aborted` — watcher killed the agent due to timeout, stall, or failure loop; `message` contains the reason
+- `aborted` — watcher killed the agent due to timeout, stall, or failure loop. Includes a `suggestion` field.
+- `no_backend` — selected backend CLI not installed. Includes a `suggestion` field.
+
+## Fallback Suggestions
+
+When a task fails, aborts, or the backend is unavailable, the bridge includes a `suggestion` field in the JSON output. The suggestion is one of:
+
+- `{"action": "escalate_model", "backend": "claude", "model": "opus", ...}` — retry with a more capable model in the same backend
+- `{"action": "switch_backend", "backend": "claude", "model": "sonnet", "cost_tier": "paid", ...}` — try a different backend entirely
+- `{"action": "implement_directly", ...}` — no alternatives available, implement yourself
+
+**How to present suggestions to the user:**
+
+1. Read the `suggestion` field from the JSON output.
+2. Present the suggestion alongside the failure context:
+   - For `escalate_model`: "Task failed with [model]. The bridge suggests retrying with [suggested model] (same backend). Retry with [model], or should I implement this myself?"
+   - For `switch_backend`: "The [backend] backend is unavailable/failed. The bridge suggests trying [alt backend] with [model] ([cost_tier] tier). Switch, or should I implement this myself?"
+   - For `implement_directly`: "No alternative backends are available. Should I implement this myself?"
+3. **Never act on suggestions automatically.** Always present to the user first.
+4. If the user approves a model/backend switch, update the task file's `Backend:` and `Model:` headers and re-run the bridge.
+
+You can also call `bridge.sh --suggest '<json>'` directly to get a fallback suggestion without running a task. The JSON argument takes `reason` (no_backend, aborted, fail), `backend`, `model`, and `task_file` fields.
 
 ## Backend Not Available (Exit Code 10)
 
-If the bridge exits with code 10 and `"status": "no_backend"`, it means the selected backend's CLI is not installed on this machine. When this happens:
+If the bridge exits with code 10 and `"status": "no_backend"`, the selected backend's CLI is not installed. The `suggestion` field will recommend an alternative backend if one is available. When this happens:
 
 1. **Tell the user** which backend is unavailable.
-2. **Ask the user**: "The [backend] CLI isn't installed. Should I try a different backend or implement this myself?"
-3. If the user agrees to implement directly, **read the task file you already wrote** (`.local_task_<slug>.md`) and implement it directly using your own tools. The spec format is designed to be readable by you as well.
-4. Clean up the task file after implementation.
+2. **Present the suggestion**: "The [backend] CLI isn't installed. The bridge suggests [suggestion]. Should I [switch/implement directly]?"
+3. If the user agrees to switch, update the task file headers and re-run.
+4. If the user agrees to implement directly, **read the task file** (`.local_task_<slug>.md`) and implement using your own tools.
+5. Clean up the task file after implementation.
 
-Do NOT silently fall back — always ask first. The user may prefer to install the backend or defer the task.
+Do NOT silently fall back — always present the suggestion and ask first.
 
 ## The Delegate Produced No Changes (Status "pass" But No Diff)
 
 If the bridge reports `"status": "pass"` but `git diff` in the worktree shows no changes, the delegate ran but failed to implement anything. This is a silent failure. When this happens:
 
 1. **Tell the user** that the delegate completed without making any code changes.
-2. **Ask the user**: "The delegate didn't produce any changes. Should I implement this myself, or would you like to retry the delegation?"
+2. **Ask the user**: "The delegate didn't produce any changes. Should I implement this myself, or would you like to retry with a different model?"
 3. **Do NOT implement the changes yourself without asking.** Always wait for the user's explicit approval.
 4. If the user says to proceed, read the task spec and implement it directly.
 
@@ -213,15 +236,13 @@ This rule applies to ALL fallback scenarios — never silently take over impleme
 
 ## Agent Aborted (Status "aborted")
 
-If the bridge returns `"status": "aborted"`, the watcher killed the agent due to a timeout, stall, or failure loop. The worktree is preserved with whatever partial work the agent completed. When this happens:
+If the bridge returns `"status": "aborted"`, the watcher killed the agent due to a timeout, stall, or failure loop. The `suggestion` field recommends the next step. When this happens:
 
-1. **Tell the user** what happened, including the abort reason from `message` (e.g. "loop: 8 failures matching 'build commands failed'").
-2. **Inspect the partial work**: run `git diff main..<branch>` in the worktree to see what the agent managed to produce before being killed.
-3. **Take over the aborted task directly** — do not ask, do not re-delegate *this task*. Read the original task spec (`.local_task_<slug>.md` still exists) and the partial diff, then implement the remaining work for **this task only** using your own tools. The agent's partial changes may be usable as a starting point or may need to be reverted first — read the diff and decide.
+1. **Tell the user** what happened, including the abort reason from `message` and the suggestion.
+2. **If the suggestion is `escalate_model` or `switch_backend`**: present it to the user — "The agent was aborted ([reason]). The bridge suggests retrying with [backend/model]. Retry, or should I take over?"
+3. **If the user declines the suggestion or suggestion is `implement_directly`**: take over the task directly. Read the original task spec and the partial diff (`git diff main..<branch>`), then implement using your own tools.
 4. After completing the implementation, run the test gate manually to verify, then clean up: `bridge.sh --cleanup <slug>`.
-5. **Re-evaluate remaining tasks independently.** An abort on one task does NOT mean all remaining tasks should be implemented directly. For each remaining task, apply the Distribution Analysis criteria again: if the abort was caused by model incapability with the task's specific domain (e.g. a Swift concurrency API, complex type system), consider routing similar remaining tasks to a larger model or implementing them directly — but decide per task. Simple boilerplate tasks should still be delegated.
-
-The rationale: if a local model doom-looped on a task, re-delegating *that task* will produce the same result. But other tasks in the plan have their own complexity profiles and should not be penalised by one task's failure.
+5. **Re-evaluate remaining tasks independently.** An abort on one task does NOT mean all remaining tasks should be implemented directly. For each remaining task, apply the Distribution Analysis criteria again — but now factor in the suggestion's reasoning. If a local model doom-looped, the bridge may suggest a larger model for similar remaining tasks.
 
 ## Notes
 - Do not write massive blocks of code directly if this skill is available.

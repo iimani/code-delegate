@@ -8,6 +8,7 @@
 #   bridge.sh --cleanup <slug>    Remove a worktree after branch is approved
 #   bridge.sh --logs [slug]       Tail logs for one or all running agents
 #   bridge.sh --backends          List installed backends and availability
+#   bridge.sh --suggest <json>    Suggest fallback backend+model for a failed task
 
 set -euo pipefail
 
@@ -20,9 +21,14 @@ DEFAULT_FAIL_PATTERN="build commands failed|compilation error|FAILED|npm ERR!"
 STALL_SECONDS=180           # kill if log has no new bytes for this many seconds
 
 json_output() {
-    local status="$1" branch="${2:-}" slug="${3:-}" worktree="${4:-}" test_exit="${5:-}" test_cmd="${6:-}" msg="${7:-}"
-    printf '{"status":"%s","branch":"%s","slug":"%s","worktree":"%s","test_exit_code":%s,"test_command":"%s","message":"%s"}\n' \
-        "$status" "$branch" "$slug" "$worktree" "${test_exit:-null}" "$test_cmd" "$msg"
+    local status="$1" branch="${2:-}" slug="${3:-}" worktree="${4:-}" test_exit="${5:-}" test_cmd="${6:-}" msg="${7:-}" suggestion="${8:-}"
+    if [ -n "$suggestion" ]; then
+        printf '{"status":"%s","branch":"%s","slug":"%s","worktree":"%s","test_exit_code":%s,"test_command":"%s","message":"%s","suggestion":%s}\n' \
+            "$status" "$branch" "$slug" "$worktree" "${test_exit:-null}" "$test_cmd" "$msg" "$suggestion"
+    else
+        printf '{"status":"%s","branch":"%s","slug":"%s","worktree":"%s","test_exit_code":%s,"test_command":"%s","message":"%s"}\n' \
+            "$status" "$branch" "$slug" "$worktree" "${test_exit:-null}" "$test_cmd" "$msg"
+    fi
 }
 
 die() {
@@ -126,6 +132,101 @@ resolve_model() {
     # Empty string if no default — backend runner handles it
 }
 
+get_model_escalation() {
+    local backend="$1" current_model="$2"
+    local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
+    awk -v cur="$current_model" '
+        /^ *- alias:/ { prev=alias; alias=$NF }
+        /^ *id:/ {
+            if ($NF == cur || alias == cur) { if (prev != "") print prev; exit }
+        }
+    ' prev="" alias="" "$config_file" 2>/dev/null
+}
+
+list_backend_models() {
+    local backend="$1"
+    local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
+    awk '/^ *- alias:/ { printf "%s ", $NF }' "$config_file" 2>/dev/null
+}
+
+is_backend_available() {
+    local backend="$1"
+    local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
+    [ -f "$config_file" ] || return 1
+    local check_cmd
+    check_cmd="$(grep '^check_command:' "$config_file" | sed 's/^check_command:[[:space:]]*//')"
+    [ -z "$check_cmd" ] && return 0
+    eval "$check_cmd" >/dev/null 2>&1
+}
+
+suggest_fallback() {
+    local reason="$1" failed_backend="$2" failed_model="$3" task_file="${4:-}"
+    local skill_dir
+    skill_dir="$(dirname "$0")"
+
+    local file_count=1
+    if [ -n "$task_file" ] && [ -f "$task_file" ]; then
+        local files_header
+        files_header="$(parse_header "$task_file" "Files")"
+        if [ -n "$files_header" ]; then
+            file_count=$(echo "$files_header" | tr ',' '\n' | wc -l | tr -d ' ')
+        fi
+    fi
+
+    # Scenario 1: backend unavailable — find alternative backend
+    if [ "$reason" = "no_backend" ]; then
+        for alt in opencode claude codex; do
+            [ "$alt" = "$failed_backend" ] && continue
+            is_backend_available "$alt" || continue
+            if [ "$file_count" -gt 3 ]; then
+                grep -q 'cross_file: false' "$skill_dir/backends/${alt}/config.yaml" && continue
+            fi
+            local alt_default
+            alt_default="$(grep '^default_model:' "$skill_dir/backends/${alt}/config.yaml" | sed 's/^default_model:[[:space:]]*//' | tr -d '"')"
+            printf '{"action":"switch_backend","backend":"%s","model":"%s","reason":"%s CLI not found, %s is available"}\n' \
+                "$alt" "${alt_default:-default}" "$failed_backend" "$alt"
+            return 0
+        done
+        printf '{"action":"implement_directly","reason":"no backends available"}\n'
+        return 0
+    fi
+
+    # Scenario 2: abort/fail — try escalating model within same backend first
+    if [ "$reason" = "aborted" ] || [ "$reason" = "fail" ]; then
+        if [ -n "$failed_model" ] && [ -n "$failed_backend" ]; then
+            local next_model
+            next_model="$(get_model_escalation "$failed_backend" "$failed_model")"
+            if [ -n "$next_model" ]; then
+                printf '{"action":"escalate_model","backend":"%s","model":"%s","reason":"%s failed with %s, escalating to %s"}\n' \
+                    "$failed_backend" "$next_model" "$failed_model" "$failed_backend" "$next_model"
+                return 0
+            fi
+        fi
+
+        # No higher model in same backend — try cross-backend fallback
+        for alt in claude codex opencode; do
+            [ "$alt" = "$failed_backend" ] && continue
+            is_backend_available "$alt" || continue
+            if [ "$file_count" -gt 3 ]; then
+                grep -q 'cross_file: false' "$skill_dir/backends/${alt}/config.yaml" && continue
+            fi
+            local cost_tier
+            cost_tier="$(grep '^cost_tier:' "$skill_dir/backends/${alt}/config.yaml" | sed 's/^cost_tier:[[:space:]]*//')"
+            local alt_default
+            alt_default="$(grep '^default_model:' "$skill_dir/backends/${alt}/config.yaml" | sed 's/^default_model:[[:space:]]*//' | tr -d '"')"
+            printf '{"action":"switch_backend","backend":"%s","model":"%s","cost_tier":"%s","reason":"%s/%s failed, suggesting %s"}\n' \
+                "$alt" "${alt_default:-default}" "$cost_tier" "$failed_backend" "$failed_model" "$alt"
+            return 0
+        done
+
+        printf '{"action":"implement_directly","reason":"no alternative backends available after %s/%s failure"}\n' \
+            "$failed_backend" "$failed_model"
+        return 0
+    fi
+
+    printf '{"action":"none","reason":"unknown failure reason: %s"}\n' "$reason"
+}
+
 check_backend_available() {
     local backend="$1"
     local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
@@ -133,7 +234,9 @@ check_backend_available() {
         local check_cmd
         check_cmd="$(grep '^check_command:' "$config_file" | sed 's/^check_command:[[:space:]]*//')"
         if [ -n "$check_cmd" ] && ! eval "$check_cmd" >/dev/null 2>&1; then
-            json_output "no_backend" "" "$SLUG" "" "" "" "${backend} CLI not found -- Claude should prompt user to proceed directly"
+            local suggestion
+            suggestion="$(suggest_fallback "no_backend" "$backend" "" "${INSTRUCTION_FILE:-}")"
+            json_output "no_backend" "" "$SLUG" "" "" "" "${backend} CLI not found" "$suggestion"
             exit 10
         fi
     fi
@@ -328,6 +431,17 @@ if [ "${1:-}" = "--models" ]; then
     exit 0
 fi
 
+if [ "${1:-}" = "--suggest" ]; then
+    [ -n "${2:-}" ] || die "--suggest requires a JSON argument: '{\"reason\":\"...\",\"backend\":\"...\",\"model\":\"...\",\"task_file\":\"...\"}'"
+    sg_input="$2"
+    sg_reason="$(echo "$sg_input" | sed -n 's/.*"reason" *: *"\([^"]*\)".*/\1/p')"
+    sg_backend="$(echo "$sg_input" | sed -n 's/.*"backend" *: *"\([^"]*\)".*/\1/p')"
+    sg_model="$(echo "$sg_input" | sed -n 's/.*"model" *: *"\([^"]*\)".*/\1/p')"
+    sg_task="$(echo "$sg_input" | sed -n 's/.*"task_file" *: *"\([^"]*\)".*/\1/p')"
+    suggest_fallback "$sg_reason" "$sg_backend" "$sg_model" "$sg_task"
+    exit 0
+fi
+
 if [ "${1:-}" = "--logs" ]; then
     slug="${2:-}"
     if [ -n "$slug" ]; then
@@ -350,7 +464,7 @@ if [ "${1:-}" = "--logs" ]; then
 fi
 
 SLUG="${1:-}"
-[ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug] | --backends | --models [backend]"
+[ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug] | --backends | --models [backend] | --suggest <json>"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     die "Not inside a Git repository"
@@ -470,7 +584,8 @@ fi
 rm -f "${WORKTREE_PATH}/.local_task.md" "${WORKTREE_PATH}/.local_feedback.md"
 
 if [ -n "$ABORT_REASON" ]; then
-    json_output "aborted" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "" "" "Agent aborted: $ABORT_REASON"
+    SUGGESTION="$(suggest_fallback "aborted" "$BACKEND" "$MODEL" "$INSTRUCTION_FILE")"
+    json_output "aborted" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "" "" "Agent aborted: $ABORT_REASON" "$SUGGESTION"
     exit 2
 fi
 
@@ -491,6 +606,7 @@ rm -f "$TASK_FILE" "$FEEDBACK_FILE"
 if [ "$TEST_PASSED" = true ]; then
     json_output "pass" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "${TEST_EXIT_CODE:-0}" "$TEST_CMD" ""
 else
-    json_output "fail" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "$TEST_EXIT_CODE" "$TEST_CMD" "Test gate failed"
+    SUGGESTION="$(suggest_fallback "fail" "$BACKEND" "$MODEL" "$INSTRUCTION_FILE")"
+    json_output "fail" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "$TEST_EXIT_CODE" "$TEST_CMD" "Test gate failed" "$SUGGESTION"
     exit 1
 fi

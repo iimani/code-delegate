@@ -1,0 +1,5 @@
+DESCRIPTION: When a backend is unavailable, the bridge should suggest switching to an alternative backend
+PROMPT: The bridge returned {"status":"no_backend","branch":"","slug":"feat-api","worktree":"","test_exit_code":null,"test_command":"","message":"codex CLI not found","suggestion":{"action":"switch_backend","backend":"claude","model":"sonnet","reason":"codex CLI not found, claude is available"}}. Present the fallback option to the user.
+EXPECT: claude
+EXPECT: sonnet
+FORBID: silently switch
