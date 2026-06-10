@@ -1,6 +1,6 @@
 # Code Delegate — Multi-Backend Code Delegation Plugin
 
-A Claude Code plugin that delegates token-heavy implementation tasks to local or cloud AI agents. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents across different backends.
+A cross-platform plugin that delegates token-heavy implementation tasks to local or cloud AI agents. Works with **Claude Code**, **Codex CLI**, and **OpenCode CLI**. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents across different backends.
 
 ## Installation
 
@@ -21,6 +21,27 @@ git clone https://github.com/iimani/code-delegate.git ~/.claude/skills/code-dele
 ```
 
 Claude Code auto-discovers plugins from `~/.claude/skills/`.
+
+### Codex CLI
+
+```bash
+git clone https://github.com/iimani/code-delegate.git
+# Symlink skills into Codex's discovery path
+mkdir -p ~/.agents/skills
+for skill in code-delegate/skills/*/; do
+  ln -sf "$(pwd)/$skill" ~/.agents/skills/"$(basename "$skill")"
+done
+```
+
+Codex auto-discovers skills from `~/.agents/skills/`. The `AGENTS.md` at the repo root provides Codex-specific tool mappings.
+
+### OpenCode CLI
+
+```bash
+git clone https://github.com/iimani/code-delegate.git ~/.claude/skills/code-delegate
+```
+
+OpenCode has Claude Code compatibility and auto-discovers skills from `~/.claude/skills/`. It also reads the `AGENTS.md` file for project-level instructions.
 
 ### Install backends (at least one)
 
@@ -179,7 +200,8 @@ code-delegate/
 │       ├── run.sh
 │       └── config.yaml
 ├── bridge.sh                    # Backend-agnostic dispatcher
-├── CLAUDE.md                    # Project-level instructions
+├── CLAUDE.md                    # Claude Code instructions
+├── AGENTS.md                    # Codex/OpenCode instructions + tool mappings
 └── tests/                       # Workflow validation scenarios
 ```
 
