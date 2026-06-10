@@ -17,9 +17,9 @@ request, or any other trigger — follow this flow instead of writing code yours
 
 ## Invoking the skill
 
-- **Claude Code:** `Skill tool → skill: "code-delegate:delegate"` (or `/delegate`)
-- **Codex CLI:** invoke the `delegate` skill (or `/delegate`)
-- **OpenCode CLI:** invoke the `delegate` skill (or `/delegate`)
+- **Claude Code:** `Skill tool → skill: "code-delegate:delegate"` (or `/code-delegate`)
+- **Codex CLI:** invoke the `delegate` skill (or `/code-delegate`)
+- **OpenCode CLI:** invoke the `delegate` skill (or `/code-delegate`)
 
 The skill handles everything: distribution criteria, spec format, worktree isolation,
 bridge invocation, test gates, and feedback loops. If a backend is not installed (bridge
