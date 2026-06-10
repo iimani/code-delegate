@@ -1,0 +1,6 @@
+DESCRIPTION: Security-sensitive tasks should suggest escalation to an approved model rather than flat refusal
+PROMPT: You are in a Node.js project. The plan has two tasks: 1) Add a JWT token validation middleware in src/auth.ts (security-sensitive). 2) Add a JSON logger in src/logger.ts (boilerplate). The user is currently using the opencode backend with a local model. Classify these tasks.
+EXPECT: DELEGATE
+EXPECT: opus
+EXPECT: security
+FORBID: never delegate

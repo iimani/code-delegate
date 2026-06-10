@@ -1,19 +1,30 @@
-# Claude Code + OpenCode Local Delegation Skill
+# Code Delegate — Multi-Backend Code Delegation Plugin
 
-A global skill for Claude Code that delegates token-heavy implementation tasks to a local LLM running via OpenCode + LM Studio. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple local subagents.
+A Claude Code plugin that delegates token-heavy implementation tasks to local or cloud AI agents. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents across different backends.
+
+## Backends
+
+| Backend    | CLI       | Cost | Strengths                                    |
+|------------|-----------|------|----------------------------------------------|
+| **opencode** | `opencode` | Free | Single-file tasks, boilerplate, CRUD via local LLM |
+| **claude**   | `claude`   | Paid | Cross-file reasoning, complex types, multi-file refactors |
+| **codex**    | `codex`    | Paid | Single-file tasks, boilerplate               |
+
+The bridge auto-selects the best available backend based on task complexity, or you can specify one explicitly via the `Backend:` header.
 
 ## How It Works
 
 ```
-Claude Code (cloud)          bridge.sh              OpenCode (local)
-─────────────────          ──────────────          ─────────────────
+Claude Code (orchestrator)      bridge.sh              Backend (opencode/claude/codex)
+──────────────────────        ──────────────          ─────────────────────────────
 Write .local_task_<slug>.md
          │
-         ├──→ Parse Branch/Test/Files headers
+         ├──→ Parse headers (Branch/Backend/Test/Files)
+         │    Resolve backend (explicit or auto-select)
          │    git worktree add .git/worktrees_agents/<slug>
          │    Symlink dependencies
          │                    │
-         │                    ├──→ opencode run (inside worktree)
+         │                    ├──→ backends/<name>/run.sh (inside worktree)
          │                    │         │
          │                    │    ←────┘ commits to isolated branch
          │                    │
@@ -28,108 +39,76 @@ Review git diff
 
 ## Setup
 
-### 1. Install the skill (any machine)
+### Install the plugin
 
 ```bash
-git clone https://github.com/iimani/opencode-delegate.git ~/.claude/skills/opencode-delegate
+git clone https://github.com/iimani/code-delegate.git ~/.claude/skills/code-delegate
 ```
 
-That's it — Claude Code auto-discovers global skills from `~/.claude/skills/`.
+Claude Code auto-discovers global skills from `~/.claude/skills/`.
 
-### 2. Install OpenCode + LM Studio (optional, per machine)
+### Install backends (at least one)
 
-The skill works best with a local inference engine, but gracefully prompts the user to let Claude proceed directly if OpenCode isn't installed.
-
-**LM Studio:**
-1. Download from [lmstudio.ai](https://lmstudio.ai)
-2. Load a coding model (e.g., Qwen 2.5 Coder, DeepSeek Coder)
-3. Start the local server (defaults to `http://localhost:1234`)
-
-**OpenCode:**
+**OpenCode (local, free):**
 ```bash
 curl -fsSL https://opencode.ai/install | bash
 ```
+Configure with LM Studio, Ollama, or any OpenAI-compatible server.
 
-Configure it to use LM Studio in `~/.config/opencode/opencode.json`:
-```json
-{
-  "provider": {
-    "lmstudio": {
-      "name": "LM Studio (Local)",
-      "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "baseURL": "http://127.0.0.1:1234/v1",
-        "apiKey": "lm-studio"
-      },
-      "models": {
-        "your-model-id": { "name": "your-model-id" }
-      }
-    }
-  },
-  "model": "lmstudio/your-model-id"
-}
-```
+**Claude Code CLI (already installed if you're reading this):**
+The `claude` CLI is the Claude backend — no extra setup needed.
 
-### 3. Make it the default workflow
-
-Copy the included `CLAUDE.md` to your global config so Claude always uses delegation:
-
+**Codex CLI:**
 ```bash
-cp ~/.claude/skills/opencode-delegate/CLAUDE.md ~/.claude/CLAUDE.md
+npm install -g @openai/codex
 ```
 
-If you already have a `~/.claude/CLAUDE.md`, append the contents instead.
+### Make it the default workflow
 
-#### Why the override is needed
+Add to your `~/.claude/CLAUDE.md`:
 
-If you use the [superpowers](https://github.com/obra/superpowers) plugin, its skill chain
-(brainstorming → writing-plans → executing-plans) has a hardcoded execution phase that
-dispatches Claude subagents or writes code inline. Without the override, superpowers takes
-over at the implementation step and never reaches the `opencode-delegate` skill. The
-`CLAUDE.md` instruction intercepts this and replaces two steps at once: it skips
-writing-plans (whose prose spec is never passed to OpenCode anyway) and replaces
-executing-plans with the local delegate.
+```markdown
+When you reach the implementation phase, invoke the `code-delegate` skill instead of
+writing code yourself. Invoke via: `Skill tool → skill: "code-delegate"`
+```
 
 ## Usage
 
 ### Single task delegation
-Tell Claude to implement something — it will write a spec, invoke the bridge, and review the result:
-
 > "Implement a structured logger module with JSON output and context support."
 
 ### Parallel dispatch
-For multi-file features, Claude writes multiple task specs and invokes the bridge in parallel:
-
 > "Implement the auth middleware, the rate limiter, and the request logger as separate modules."
 
-### Manual invocation
-You can also invoke the skill explicitly:
+### Explicit backend selection
+> "Use the claude backend with opus to implement this complex type system."
 
-> "Use the opencode-delegate skill to implement this."
+### Commands
 
-### Check active agents
+| Command | Description |
+|---------|-------------|
+| `/code-delegate` | Main command — distribution analysis + task execution |
+| `/code-delegate:status` | Show active agent worktrees and progress |
+| `/code-delegate:backends` | List installed backends and availability |
+| `/code-delegate:cleanup <slug>` | Remove a worktree after merging |
+
+### Bridge CLI
+
 ```bash
-~/.claude/skills/opencode-delegate/bridge.sh --status
+bridge.sh <slug>              # Run task
+bridge.sh --status            # List active agents
+bridge.sh --backends          # List installed backends
+bridge.sh --logs [slug]       # Tail agent logs
+bridge.sh --cleanup <slug>    # Remove worktree
 ```
-
-### Clean up after merging
-```bash
-~/.claude/skills/opencode-delegate/bridge.sh --cleanup <slug>
-```
-
-## When OpenCode Isn't Installed
-
-If `opencode` is not in PATH, the bridge exits with code 10. Claude will ask you:
-
-> "OpenCode isn't installed on this machine. Should I implement this myself instead?"
-
-If you say yes, Claude reads the task spec it already wrote and implements it directly. The spec format is designed to be readable by both OpenCode and Claude.
 
 ## Task File Format
 
 ```markdown
 ---
 Branch: feat/logger
+Backend: auto
+Model: sonnet
 Test: npm test -- --filter logger
 Files: src/logger.ts, src/logger.test.ts
 ---
@@ -149,6 +128,29 @@ One sentence.
 - Explicit boundaries
 ```
 
-## Roadmap
+**Headers:** `Branch:` (required), `Backend:` (optional, default: auto), `Model:` (optional), `Test:` (optional), `Files:` (optional), `Timeout:` (optional), `MaxFails:` (optional), `FailPattern:` (optional).
 
-See [TODO.md](TODO.md) for planned features, including delegation to Claude API models as an alternative backend.
+## Project Structure
+
+```
+code-delegate/
+├── commands/
+│   └── code-delegate.md     # Main command: distribution + execution
+├── skills/
+│   ├── status.md            # code-delegate:status
+│   ├── backends.md          # code-delegate:backends
+│   └── cleanup.md           # code-delegate:cleanup
+├── backends/
+│   ├── opencode/            # Local LLM via OpenCode CLI
+│   │   ├── run.sh
+│   │   └── config.yaml
+│   ├── claude/              # Claude Code CLI
+│   │   ├── run.sh
+│   │   └── config.yaml
+│   └── codex/               # OpenAI Codex CLI
+│       ├── run.sh
+│       └── config.yaml
+├── bridge.sh                # Backend-agnostic dispatcher
+├── CLAUDE.md                # Project-level instructions
+└── tests/                   # Workflow validation scenarios
+```
