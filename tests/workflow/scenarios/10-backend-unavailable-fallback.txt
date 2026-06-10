@@ -1,0 +1,4 @@
+DESCRIPTION: Distribution analysis should handle when a specific backend is requested
+PROMPT: You are in a Node.js project. Implement a REST client in src/api.ts. Use Backend: codex for this task. Note that the codex CLI is not installed on this machine.
+EXPECT: DELEGATE
+FORBID: ```typescript

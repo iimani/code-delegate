@@ -1,0 +1,5 @@
+DESCRIPTION: Task without explicit backend should auto-select and show the chosen backend
+PROMPT: You are in a Node.js project. Implement a JSON logger in src/logger.ts. This is a single-file boilerplate task.
+EXPECT: DELEGATE
+FORBID: ```typescript
+FORBID: import {

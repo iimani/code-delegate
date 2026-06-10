@@ -1,0 +1,6 @@
+DESCRIPTION: Task with explicit Backend: header should mention that backend in distribution
+PROMPT: You are in a Node.js project. Implement a simple YAML config reader in src/config.ts. Use Backend: claude for this task.
+EXPECT: claude
+EXPECT: DELEGATE
+FORBID: ```typescript
+FORBID: import {
