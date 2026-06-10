@@ -1,0 +1,9 @@
+{
+  "name": "code-delegate",
+  "version": "1.0.0",
+  "description": "Delegate code implementation to local or cloud AI agents using isolated Git worktrees. Pluggable backends: opencode (local LLMs), claude (Anthropic API), codex (OpenAI).",
+  "author": {
+    "name": "Ismail Imani",
+    "email": "anthropic@iimani.ch"
+  }
+}
