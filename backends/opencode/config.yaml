@@ -1,10 +1,9 @@
 name: opencode
 description: Local AI coding agent via OpenCode CLI (LM Studio, Ollama, etc.)
 check_command: command -v opencode
+list_models_command: opencode models 2>/dev/null
 default_model: ""
-models:
-  - pattern: "*"
-    description: "Any model configured in OpenCode (use provider/model format)"
+models: dynamic
 capabilities:
   - single-file
   - boilerplate

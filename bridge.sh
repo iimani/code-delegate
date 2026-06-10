@@ -91,6 +91,41 @@ auto_select_backend() {
     return 1
 }
 
+resolve_model() {
+    local backend="$1" model="$2"
+    local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
+
+    # If model is already set, try to resolve alias → id
+    if [ -n "$model" ]; then
+        local resolved
+        resolved="$(awk -v alias="$model" '
+            /^ *- alias:/ { a=$NF }
+            /^ *id:/ { if (a == alias) { print $NF; exit } }
+        ' "$config_file" 2>/dev/null)"
+        if [ -n "$resolved" ]; then
+            echo "$resolved"
+        else
+            # Not an alias — pass through as-is (might be a raw model ID)
+            echo "$model"
+        fi
+        return
+    fi
+
+    # No model specified — use backend default
+    local default_model
+    default_model="$(grep '^default_model:' "$config_file" | sed 's/^default_model:[[:space:]]*//')"
+    if [ -n "$default_model" ]; then
+        # Resolve the default alias too
+        local resolved
+        resolved="$(awk -v alias="$default_model" '
+            /^ *- alias:/ { a=$NF }
+            /^ *id:/ { if (a == alias) { print $NF; exit } }
+        ' "$config_file" 2>/dev/null)"
+        echo "${resolved:-$default_model}"
+    fi
+    # Empty string if no default — backend runner handles it
+}
+
 check_backend_available() {
     local backend="$1"
     local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
@@ -249,6 +284,50 @@ if [ "${1:-}" = "--backends" ]; then
     exit 0
 fi
 
+if [ "${1:-}" = "--models" ]; then
+    skill_dir="$(dirname "$0")"
+    backend_filter="${2:-}"
+    for config in "$skill_dir"/backends/*/config.yaml; do
+        [ -f "$config" ] || continue
+        dir="$(dirname "$config")"
+        name="$(basename "$dir")"
+        [ -z "$backend_filter" ] || [ "$name" = "$backend_filter" ] || continue
+
+        check_cmd="$(grep '^check_command:' "$config" | sed 's/^check_command:[[:space:]]*//')"
+        if [ -n "$check_cmd" ] && ! eval "$check_cmd" >/dev/null 2>&1; then
+            echo "$name: (unavailable)"
+            continue
+        fi
+
+        models_value="$(grep '^models:' "$config" | sed 's/^models:[[:space:]]*//')"
+        if [ "$models_value" = "dynamic" ]; then
+            list_cmd="$(grep '^list_models_command:' "$config" | sed 's/^list_models_command:[[:space:]]*//')"
+            if [ -n "$list_cmd" ]; then
+                echo "$name: (dynamic — querying CLI)"
+                eval "$list_cmd" 2>/dev/null | sed 's/^/  /' || echo "  (query failed)"
+            else
+                echo "$name: (dynamic — pass any model ID directly)"
+            fi
+        else
+            default_model="$(grep '^default_model:' "$config" | sed 's/^default_model:[[:space:]]*//')"
+            echo "$name:"
+            # Parse alias/description blocks from model entries (indented)
+            awk -v defmodel="$default_model" '
+                /^ *- alias:/ { alias=$NF; in_model=1 }
+                in_model && /^ *description:/ {
+                    sub(/^ *description: *"?/, ""); sub(/"$/, "")
+                    desc=$0
+                    marker=""
+                    if (alias == defmodel) marker=" (default)"
+                    print "  " alias marker " — " desc
+                    alias=""; in_model=0
+                }
+            ' "$config"
+        fi
+    done
+    exit 0
+fi
+
 if [ "${1:-}" = "--logs" ]; then
     slug="${2:-}"
     if [ -n "$slug" ]; then
@@ -271,7 +350,7 @@ if [ "${1:-}" = "--logs" ]; then
 fi
 
 SLUG="${1:-}"
-[ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug] | --backends"
+[ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug] | --backends | --models [backend]"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     die "Not inside a Git repository"
@@ -320,6 +399,9 @@ BACKEND_RUNNER="${BACKEND_DIR}/run.sh"
 
 # Check backend CLI availability
 check_backend_available "$BACKEND"
+
+# Resolve model alias → id and apply backend default
+MODEL="$(resolve_model "$BACKEND" "$MODEL")"
 
 if [ "$MODE" = "task" ]; then
     if [ -d "$WORKTREE_PATH" ]; then

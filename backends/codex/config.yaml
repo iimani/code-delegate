@@ -3,8 +3,12 @@ description: OpenAI Codex CLI agent
 check_command: command -v codex
 default_model: ""
 models:
-  - pattern: "*"
-    description: "Any model supported by Codex CLI"
+  - alias: o3
+    id: o3
+    description: "OpenAI o3 — strong reasoning"
+  - alias: o4-mini
+    id: o4-mini
+    description: "OpenAI o4-mini — fast, cost-effective"
 capabilities:
   - single-file
   - boilerplate

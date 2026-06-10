@@ -91,23 +91,38 @@ Before writing any task files or running the bridge, classify each sub-task and 
 ### Route to a more capable model when:
 - Task scope exceeds the local model's ceiling but is still delegatable — set `Backend: claude` with `Model: opus`, or use a larger local model via opencode
 
+### Model selection
+
+Before showing the distribution summary, run `bridge.sh --models` to get available models per backend. Present models alongside the distribution so the user can override defaults.
+
+The bridge resolves model aliases automatically — if the user writes `Model: haiku`, the bridge maps it to the correct ID for the selected backend. If no `Model:` header is set, the backend's default model is used.
+
+For the opencode backend, models are dynamic (whatever's running locally). Run `bridge.sh --models opencode` to query available models at runtime.
+
 ### Distribution summary (show this to the user before any execution)
 
 ```
 Task distribution:
 
   DELEGATE
-  ├─ feat/logger         [opencode] — new file, boilerplate JSON logger, no type complexity
-  └─ feat/config-parser  [opencode] — single file, straightforward struct parsing
+  ├─ feat/logger         [opencode]       — new file, boilerplate JSON logger
+  └─ feat/config-parser  [opencode]       — single file, straightforward struct parsing
 
   IMPLEMENT DIRECTLY (Claude orchestrator)
   └─ refactor/auth       — touches 6 files, security-sensitive, cross-file invariants
 
   DELEGATE (larger model)
-  └─ feat/generics-util  [claude/opus] — TypeScript conditional types, needs strong type reasoning
+  └─ feat/generics-util  [claude / opus]  — TypeScript conditional types, needs strong type reasoning
 
-Proceed?
+Available models:
+  opencode:  (dynamic) qwen-9b, deepseek-33b
+  claude:    haiku, sonnet (default), opus
+  codex:     (unavailable)
+
+Override model selections, or proceed with defaults?
 ```
+
+The user can respond with overrides like "use opus for feat/generics-util" or "proceed with defaults". Write the chosen model into each task file's `Model:` header.
 
 Only after user approval: write task files for delegated tasks, implement direct tasks yourself, and invoke the bridge.
 
