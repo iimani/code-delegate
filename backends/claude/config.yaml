@@ -1,0 +1,23 @@
+name: claude
+description: Claude Code CLI subagent (Anthropic API)
+check_command: command -v claude
+default_model: sonnet
+models:
+  - name: opus
+    description: "Claude Opus — highest capability, cross-file reasoning, type systems"
+  - name: sonnet
+    description: "Claude Sonnet — fast, good for bounded tasks"
+  - name: haiku
+    description: "Claude Haiku — fastest, good for boilerplate and simple tasks"
+capabilities:
+  - single-file
+  - cross-file
+  - type-reasoning
+  - boilerplate
+  - test-generation
+  - crud
+tags:
+  security_ok: false
+  cross_file: true
+  type_reasoning: true
+cost_tier: paid

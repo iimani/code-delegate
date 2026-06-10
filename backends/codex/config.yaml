@@ -1,0 +1,17 @@
+name: codex
+description: OpenAI Codex CLI agent
+check_command: command -v codex
+default_model: ""
+models:
+  - pattern: "*"
+    description: "Any model supported by Codex CLI"
+capabilities:
+  - single-file
+  - boilerplate
+  - test-generation
+  - crud
+tags:
+  security_ok: false
+  cross_file: false
+  type_reasoning: false
+cost_tier: paid
