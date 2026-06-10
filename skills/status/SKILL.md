@@ -1,6 +1,7 @@
 ---
 name: status
 description: Show active code-delegate agent worktrees, their backends, branches, and last log line
+trigger: /code-delegate:status
 ---
 
 # Code Delegate Status
