@@ -1,6 +1,6 @@
 #!/bin/bash
 # ~/.claude/skills/opencode-delegate/bridge.sh
-# Parallel worktree execution bridge for the opencode-delegate skill
+# Backend-agnostic dispatcher for delegated worktree execution
 #
 # Usage:
 #   bridge.sh <slug>              Run task or feedback for the given branch slug
@@ -32,6 +32,31 @@ die() {
 parse_header() {
     local file="$1" key="$2"
     grep -m1 "^${key}:" "$file" 2>/dev/null | sed "s/^${key}:[[:space:]]*//" || true
+}
+
+resolve_backend() {
+    local file="$1"
+    local backend
+    backend="$(parse_header "$file" "Backend")"
+    backend="${backend:-opencode}"
+    local runner="$(dirname "$0")/backends/${backend}/run.sh"
+    if [ ! -f "$runner" ]; then
+        die "Unknown backend '${backend}': no runner found at backends/${backend}/run.sh"
+    fi
+    echo "$backend"
+}
+
+check_backend_available() {
+    local backend="$1"
+    local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
+    if [ -f "$config_file" ]; then
+        local check_cmd
+        check_cmd="$(grep '^check_command:' "$config_file" | sed 's/^check_command:[[:space:]]*//')"
+        if [ -n "$check_cmd" ] && ! eval "$check_cmd" >/dev/null 2>&1; then
+            json_output "no_backend" "" "$SLUG" "" "" "" "${backend} CLI not found -- Claude should prompt user to proceed directly"
+            exit 10
+        fi
+    fi
 }
 
 link_dependencies() {
@@ -90,7 +115,7 @@ run_test_gate() {
     return $test_exit
 }
 
-# Monitors an opencode process for stalls, failure loops, and wall-clock timeout.
+# Monitors a backend process for stalls, failure loops, and wall-clock timeout.
 # Kills $pid and writes a reason to $abort_file if any limit is triggered.
 is_alive() { kill -0 "$1" 2>/dev/null; }
 
@@ -177,22 +202,11 @@ if [ "${1:-}" = "--logs" ]; then
     exit 0
 fi
 
-if [ "${1:-}" = "--list-models" ]; then
-    echo "Available Opencode models:"
-    opencode models 2>/dev/null || echo "(failed to list models)"
-    exit 0
-fi
-
 SLUG="${1:-}"
 [ -n "$SLUG" ] || die "Usage: bridge.sh <slug> | --status | --cleanup <slug> | --logs [slug]"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     die "Not inside a Git repository"
-fi
-
-if ! command -v opencode >/dev/null 2>&1; then
-    json_output "no_opencode" "" "$SLUG" "" "" "" "opencode CLI not found -- Claude should prompt user to proceed directly"
-    exit 10
 fi
 
 TASK_FILE=".local_task_${SLUG}.md"
@@ -228,9 +242,16 @@ FAIL_PATTERN="${FAIL_PATTERN:-$DEFAULT_FAIL_PATTERN}"
 
 [ -n "$BRANCH" ] || die "No Branch: header found in $INSTRUCTION_FILE"
 
-if [ -n "$MODEL" ] && ! echo "$MODEL" | grep -qE '/'; then
-    die "Invalid model format: '$MODEL'. Must be 'provider/model' (e.g., 'lmstudio/qwen/qwen3.5-9b')"
-fi
+# Resolve and validate backend
+BACKEND="$(resolve_backend "$INSTRUCTION_FILE")"
+BACKEND_DIR="$(dirname "$0")/backends/${BACKEND}"
+BACKEND_RUNNER="${BACKEND_DIR}/run.sh"
+
+[ -f "$BACKEND_RUNNER" ] || die "Backend runner not found: $BACKEND_RUNNER"
+[ -x "$BACKEND_RUNNER" ] || chmod +x "$BACKEND_RUNNER"
+
+# Check backend CLI availability
+check_backend_available "$BACKEND"
 
 if [ "$MODE" = "task" ]; then
     if [ -d "$WORKTREE_PATH" ]; then
@@ -261,48 +282,21 @@ elif [ "$MODE" = "feedback" ]; then
     fi
 fi
 
-TASK_CONTENT="$(cat "$INSTRUCTION_FILE")"
+SPEC_IN_WORKTREE="${WORKTREE_PATH}/.local_${MODE}.md"
 LOG_FILE="${WORKTREE_PATH}/opencode.log"
 ABORT_FILE="${WORKTREE_PATH}/.bridge_abort"
 
 rm -f "$ABORT_FILE"
 
-echo "Invoking OpenCode in $WORKTREE_PATH..."
-echo "[$(date '+%H:%M:%S')] Starting OpenCode for $SLUG ($MODE mode) | timeout=${WALL_TIMEOUT}s max_fails=${MAX_FAILS}" > "$LOG_FILE"
-echo "  Follow progress: ~/.claude/skills/opencode-delegate/bridge.sh --logs $SLUG"
+echo "Invoking ${BACKEND} backend in $WORKTREE_PATH..."
+echo "[$(date '+%H:%M:%S')] Starting ${BACKEND} for $SLUG ($MODE mode) | timeout=${WALL_TIMEOUT}s max_fails=${MAX_FAILS}" > "$LOG_FILE"
+echo "  Follow progress: bridge.sh --logs $SLUG"
 
-CMD=(opencode run --dangerously-skip-permissions --pure)
-if [ -n "$MODEL" ]; then
-    CMD+=(--model "$MODEL")
-fi
-
-PREAMBLE="$(cat <<'PREAMBLE_EOF'
-<agent-role>
-You are a direct code implementation agent dispatched by Claude Code. Your ONLY job is to implement the spec below.
-
-Rules:
-- Do NOT invoke any skills or load any skill frameworks (no using-superpowers, no TDD workflow, no brainstorming)
-- Do NOT fetch external URLs
-- Do NOT write plans, specs, or analysis documents
-- Do NOT ask clarifying questions — the spec is authoritative
-
-Workflow: read files → make changes → build/test → fix errors → repeat until the test gate passes or the spec is fully implemented.
-</agent-role>
-PREAMBLE_EOF
-)"
-
-if [ "$MODE" = "feedback" ]; then
-    PROMPT_TEXT="${PREAMBLE}"$'\n\n'"Apply the following fixes directly in this workspace:"$'\n\n'"$TASK_CONTENT"
-else
-    PROMPT_TEXT="${PREAMBLE}"$'\n\n'"Implement the following spec directly in this workspace:"$'\n\n'"$TASK_CONTENT"
-fi
-
-# Use exec inside the subshell so the PID we track IS the opencode process,
+# Use exec inside the subshell so the PID we track IS the backend process,
 # allowing the watcher to kill it directly.
 OPENCODE_EXIT=0
 (
-    cd "$WORKTREE_PATH"
-    exec "${CMD[@]}" "$PROMPT_TEXT"
+    exec "$BACKEND_RUNNER" "$WORKTREE_PATH" "$SPEC_IN_WORKTREE" "$MODEL" "$MODE"
 ) >> "$LOG_FILE" 2>&1 &
 OC_PID=$!
 
@@ -312,7 +306,7 @@ wait "$OC_PID" 2>/dev/null || OPENCODE_EXIT=$?
 kill "$WATCHER_PID" 2>/dev/null || true
 wait "$WATCHER_PID" 2>/dev/null || true
 
-echo "[$(date '+%H:%M:%S')] OpenCode finished (exit: $OPENCODE_EXIT)" >> "$LOG_FILE"
+echo "[$(date '+%H:%M:%S')] ${BACKEND} finished (exit: $OPENCODE_EXIT)" >> "$LOG_FILE"
 
 # Watcher writes the kill reason here before sending SIGTERM
 ABORT_REASON=""
@@ -329,7 +323,7 @@ if [ -n "$ABORT_REASON" ]; then
 fi
 
 if [ "$OPENCODE_EXIT" -ne 0 ]; then
-    json_output "error" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "" "" "OpenCode exited with code $OPENCODE_EXIT"
+    json_output "error" "$BRANCH" "$SLUG" "$WORKTREE_PATH" "" "" "${BACKEND} exited with code $OPENCODE_EXIT"
     exit $OPENCODE_EXIT
 fi
 
