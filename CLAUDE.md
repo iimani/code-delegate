@@ -1,3 +1,10 @@
+# PRIME DIRECTIVE — Never Push Directly to Main
+
+**All changes go through a feature branch and pull request.** No exceptions.
+Never commit or push directly to `main`. Always create a branch (`feature/<desc>` or `fix/<desc>`), push it, and open a PR. This applies even when the user says "push" or "commit" without specifying a branch.
+
+---
+
 # Default Delegation Behavior — OVERRIDES ALL EXECUTION SKILLS
 
 **This rule takes priority over superpowers execution skills** (executing-plans,

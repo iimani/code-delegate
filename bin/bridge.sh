@@ -1,5 +1,5 @@
 #!/bin/bash
-# code-delegate/bridge.sh
+# code-delegate/bin/bridge.sh
 # Backend-agnostic dispatcher for delegated worktree execution
 #
 # Usage:
@@ -12,6 +12,8 @@
 #   bridge.sh --security-check <backend> <model>  Check if backend+model is approved for security-sensitive tasks
 
 set -euo pipefail
+
+PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 AGENTS_DIR=".git/worktrees_agents"
 DEP_DIRS=("node_modules" "venv" ".venv" "vendor" "target" ".build")
@@ -55,7 +57,7 @@ resolve_backend() {
         echo "Auto-selected backend: $backend" >&2
     fi
 
-    local runner="$(dirname "$0")/backends/${backend}/run.sh"
+    local runner="$PLUGIN_ROOT/backends/${backend}/run.sh"
     if [ ! -f "$runner" ]; then
         die "Unknown backend '${backend}': no runner found at backends/${backend}/run.sh"
     fi
@@ -65,7 +67,7 @@ resolve_backend() {
 auto_select_backend() {
     local instruction_file="$1"
     local skill_dir
-    skill_dir="$(dirname "$0")"
+    skill_dir="$PLUGIN_ROOT"
 
     local files_header
     files_header="$(parse_header "$instruction_file" "Files")"
@@ -100,7 +102,7 @@ auto_select_backend() {
 
 resolve_model() {
     local backend="$1" model="$2"
-    local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
+    local config_file="$PLUGIN_ROOT/backends/${backend}/config.yaml"
 
     # If model is already set, try to resolve alias → id
     if [ -n "$model" ]; then
@@ -135,7 +137,7 @@ resolve_model() {
 
 get_model_escalation() {
     local backend="$1" current_model="$2"
-    local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
+    local config_file="$PLUGIN_ROOT/backends/${backend}/config.yaml"
     awk -v cur="$current_model" '
         /^ *- alias:/ { prev=alias; alias=$NF }
         /^ *id:/ {
@@ -146,13 +148,13 @@ get_model_escalation() {
 
 list_backend_models() {
     local backend="$1"
-    local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
+    local config_file="$PLUGIN_ROOT/backends/${backend}/config.yaml"
     awk '/^ *- alias:/ { printf "%s ", $NF }' "$config_file" 2>/dev/null
 }
 
 is_backend_available() {
     local backend="$1"
-    local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
+    local config_file="$PLUGIN_ROOT/backends/${backend}/config.yaml"
     [ -f "$config_file" ] || return 1
     local check_cmd
     check_cmd="$(grep '^check_command:' "$config_file" | sed 's/^check_command:[[:space:]]*//')"
@@ -163,7 +165,7 @@ is_backend_available() {
 suggest_fallback() {
     local reason="$1" failed_backend="$2" failed_model="$3" task_file="${4:-}"
     local skill_dir
-    skill_dir="$(dirname "$0")"
+    skill_dir="$PLUGIN_ROOT"
 
     local file_count=1
     if [ -n "$task_file" ] && [ -f "$task_file" ]; then
@@ -230,7 +232,7 @@ suggest_fallback() {
 
 check_backend_available() {
     local backend="$1"
-    local config_file="$(dirname "$0")/backends/${backend}/config.yaml"
+    local config_file="$PLUGIN_ROOT/backends/${backend}/config.yaml"
     if [ -f "$config_file" ]; then
         local check_cmd
         check_cmd="$(grep '^check_command:' "$config_file" | sed 's/^check_command:[[:space:]]*//')"
@@ -370,7 +372,7 @@ if [ "${1:-}" = "--cleanup" ]; then
 fi
 
 if [ "${1:-}" = "--backends" ]; then
-    skill_dir="$(dirname "$0")"
+    skill_dir="$PLUGIN_ROOT"
     echo "Installed backends:"
     for config in "$skill_dir"/backends/*/config.yaml; do
         [ -f "$config" ] || continue
@@ -389,7 +391,7 @@ if [ "${1:-}" = "--backends" ]; then
 fi
 
 if [ "${1:-}" = "--models" ]; then
-    skill_dir="$(dirname "$0")"
+    skill_dir="$PLUGIN_ROOT"
     backend_filter="${2:-}"
     for config in "$skill_dir"/backends/*/config.yaml; do
         [ -f "$config" ] || continue
@@ -455,7 +457,7 @@ if [ "${1:-}" = "--security-check" ]; then
     [ -n "${2:-}" ] || die "--security-check requires: <backend> <model>"
     sc_backend="$2"
     sc_model="${3:-}"
-    sc_config="$(dirname "$0")/backends/${sc_backend}/config.yaml"
+    sc_config="$PLUGIN_ROOT/backends/${sc_backend}/config.yaml"
     if [ ! -f "$sc_config" ]; then
         printf '{"approved":false,"reason":"unknown backend: %s"}\n' "$sc_backend"
         exit 0
@@ -473,7 +475,7 @@ if [ "${1:-}" = "--security-check" ]; then
         printf '{"approved":true,"backend":"%s","model":"%s"}\n' "$sc_backend" "$sc_model"
     else
         # Find the first security-approved model across all backends
-        skill_dir="$(dirname "$0")"
+        skill_dir="$PLUGIN_ROOT"
         suggestion=""
         for b in claude codex opencode; do
             cfg="$skill_dir/backends/$b/config.yaml"
@@ -555,7 +557,7 @@ FAIL_PATTERN="${FAIL_PATTERN:-$DEFAULT_FAIL_PATTERN}"
 
 # Resolve and validate backend
 BACKEND="$(resolve_backend "$INSTRUCTION_FILE")"
-BACKEND_DIR="$(dirname "$0")/backends/${BACKEND}"
+BACKEND_DIR="$PLUGIN_ROOT/backends/${BACKEND}"
 BACKEND_RUNNER="${BACKEND_DIR}/run.sh"
 
 [ -f "$BACKEND_RUNNER" ] || die "Backend runner not found: $BACKEND_RUNNER"
