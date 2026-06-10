@@ -2,50 +2,25 @@
 
 A Claude Code plugin that delegates token-heavy implementation tasks to local or cloud AI agents. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents across different backends.
 
-## Backends
+## Installation
 
-| Backend    | CLI       | Cost | Strengths                                    |
-|------------|-----------|------|----------------------------------------------|
-| **opencode** | `opencode` | Free | Single-file tasks, boilerplate, CRUD via local LLM |
-| **claude**   | `claude`   | Paid | Cross-file reasoning, complex types, multi-file refactors |
-| **codex**    | `codex`    | Paid | Single-file tasks, boilerplate               |
+### From marketplace (recommended)
 
-The bridge auto-selects the best available backend based on task complexity, or you can specify one explicitly via the `Backend:` header.
+```bash
+# Add the marketplace
+claude plugin marketplace add iimani/code-delegate
 
-## How It Works
-
-```
-Claude Code (orchestrator)      bridge.sh              Backend (opencode/claude/codex)
-──────────────────────        ──────────────          ─────────────────────────────
-Write .local_task_<slug>.md
-         │
-         ├──→ Parse headers (Branch/Backend/Test/Files)
-         │    Resolve backend (explicit or auto-select)
-         │    git worktree add .git/worktrees_agents/<slug>
-         │    Symlink dependencies
-         │                    │
-         │                    ├──→ backends/<name>/run.sh (inside worktree)
-         │                    │         │
-         │                    │    ←────┘ commits to isolated branch
-         │                    │
-         │    Run test gate   │
-         │         │
-    ←────┘  JSON status       │
-         │
-Review git diff
-         │
-    (pass) merge  ──or──  (fail) write .local_feedback_<slug>.md → re-run
+# Install the plugin
+claude plugin install code-delegate
 ```
 
-## Setup
-
-### Install the plugin
+### Manual install (development)
 
 ```bash
 git clone https://github.com/iimani/code-delegate.git ~/.claude/skills/code-delegate
 ```
 
-Claude Code auto-discovers global skills from `~/.claude/skills/`.
+Claude Code auto-discovers plugins from `~/.claude/skills/`.
 
 ### Install backends (at least one)
 
@@ -63,43 +38,94 @@ The `claude` CLI is the Claude backend — no extra setup needed.
 npm install -g @openai/codex
 ```
 
+## Backends
+
+| Backend    | CLI       | Cost | Strengths                                    |
+|------------|-----------|------|----------------------------------------------|
+| **opencode** | `opencode` | Free | Single-file tasks, boilerplate, CRUD via local LLM |
+| **claude**   | `claude`   | Paid | Cross-file reasoning, complex types, multi-file refactors |
+| **codex**    | `codex`    | Paid | Single-file tasks, boilerplate               |
+
+The bridge auto-selects the best available backend based on task complexity, or you can specify one explicitly via the `Backend:` header.
+
+## How It Works
+
+```
+Claude Code (orchestrator)      bridge.sh              Backend (opencode/claude/codex)
+──────────────────────        ──────────────          ─────────────────────────────
+Write .local_task_<slug>.md
+         │
+         ├──→ Parse headers (Branch/Backend/Model/Test/Files)
+         │    Resolve backend (explicit or auto-select)
+         │    Resolve model (alias → id, apply defaults)
+         │    git worktree add .git/worktrees_agents/<slug>
+         │    Symlink dependencies
+         │                    │
+         │                    ├──→ backends/<name>/run.sh (inside worktree)
+         │                    │         │
+         │                    │    ←────┘ commits to isolated branch
+         │                    │
+         │    Run test gate   │
+         │         │
+    ←────┘  JSON status (+suggestion on failure)
+         │
+Review git diff
+         │
+    (pass) merge  ──or──  (fail) apply suggestion → re-run
+```
+
+## Usage
+
+### Slash commands
+
+| Command | Description |
+|---------|-------------|
+| `/delegate` | Main command — distribution analysis + task execution |
+| `/delegate:status` | Show active agent worktrees and progress |
+| `/delegate:backends` | List installed backends and availability |
+| `/delegate:cleanup <slug>` | Remove a worktree after merging |
+
+### Examples
+
+**Single task delegation:**
+> "Implement a structured logger module with JSON output and context support."
+
+**Parallel dispatch:**
+> "Implement the auth middleware, the rate limiter, and the request logger as separate modules."
+
+**Explicit backend + model:**
+> "Use the claude backend with opus to implement this complex type system."
+
 ### Make it the default workflow
 
 Add to your `~/.claude/CLAUDE.md`:
 
 ```markdown
-When you reach the implementation phase, invoke the `code-delegate` skill instead of
-writing code yourself. Invoke via: `Skill tool → skill: "code-delegate"`
+When you reach the implementation phase, invoke the `code-delegate:delegate` skill
+instead of writing code yourself. Invoke via: Skill tool → skill: "code-delegate:delegate"
 ```
 
-## Usage
+## Features
 
-### Single task delegation
-> "Implement a structured logger module with JSON output and context support."
+- **Multi-backend dispatch** — route tasks to local models (free) or cloud APIs (capable) based on complexity
+- **Auto-selection** — bridge picks the best available backend based on task files, cross-file needs, and cost tier
+- **Model escalation** — when a task fails, the bridge suggests the next model up (haiku → sonnet → opus) or a cross-backend fallback
+- **Tiered security** — security-sensitive tasks (auth, crypto, secrets) are blocked from local models but can be delegated to approved combos like `claude/opus`
+- **Parallel execution** — dispatch multiple tasks simultaneously, each in its own Git worktree
+- **Test gates** — optional test commands that must pass before a task is considered done
+- **Watcher** — kills stalled or doom-looping agents (timeout, stall detection, failure loop counting)
 
-### Parallel dispatch
-> "Implement the auth middleware, the rate limiter, and the request logger as separate modules."
-
-### Explicit backend selection
-> "Use the claude backend with opus to implement this complex type system."
-
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `/code-delegate` | Main command — distribution analysis + task execution |
-| `/code-delegate:status` | Show active agent worktrees and progress |
-| `/code-delegate:backends` | List installed backends and availability |
-| `/code-delegate:cleanup <slug>` | Remove a worktree after merging |
-
-### Bridge CLI
+## Bridge CLI
 
 ```bash
-bridge.sh <slug>              # Run task
-bridge.sh --status            # List active agents
-bridge.sh --backends          # List installed backends
-bridge.sh --logs [slug]       # Tail agent logs
-bridge.sh --cleanup <slug>    # Remove worktree
+bridge.sh <slug>                          # Run task
+bridge.sh --status                        # List active agents
+bridge.sh --backends                      # List installed backends
+bridge.sh --models [backend]              # List available models
+bridge.sh --logs [slug]                   # Tail agent logs
+bridge.sh --cleanup <slug>                # Remove worktree
+bridge.sh --suggest '<json>'              # Get fallback suggestion
+bridge.sh --security-check <backend> <model>  # Check security approval
 ```
 
 ## Task File Format
@@ -128,29 +154,35 @@ One sentence.
 - Explicit boundaries
 ```
 
-**Headers:** `Branch:` (required), `Backend:` (optional, default: auto), `Model:` (optional), `Test:` (optional), `Files:` (optional), `Timeout:` (optional), `MaxFails:` (optional), `FailPattern:` (optional).
+**Headers:** `Branch:` (required), `Backend:` (optional, default: auto), `Model:` (optional), `Test:` (optional), `Files:` (optional), `Timeout:` (optional, default: 3600), `MaxFails:` (optional, default: 8), `FailPattern:` (optional).
 
 ## Project Structure
 
 ```
 code-delegate/
-├── commands/
-│   └── code-delegate.md     # Main command: distribution + execution
+├── .claude-plugin/
+│   ├── plugin.json              # Plugin manifest
+│   └── marketplace.json         # Marketplace index
 ├── skills/
-│   ├── status.md            # code-delegate:status
-│   ├── backends.md          # code-delegate:backends
-│   └── cleanup.md           # code-delegate:cleanup
+│   ├── delegate/SKILL.md        # Main skill: distribution + execution
+│   ├── status/SKILL.md          # code-delegate:status
+│   ├── backends/SKILL.md        # code-delegate:backends
+│   └── cleanup/SKILL.md         # code-delegate:cleanup
 ├── backends/
-│   ├── opencode/            # Local LLM via OpenCode CLI
+│   ├── opencode/                # Local LLM via OpenCode CLI
 │   │   ├── run.sh
 │   │   └── config.yaml
-│   ├── claude/              # Claude Code CLI
+│   ├── claude/                  # Claude Code CLI
 │   │   ├── run.sh
 │   │   └── config.yaml
-│   └── codex/               # OpenAI Codex CLI
+│   └── codex/                   # OpenAI Codex CLI
 │       ├── run.sh
 │       └── config.yaml
-├── bridge.sh                # Backend-agnostic dispatcher
-├── CLAUDE.md                # Project-level instructions
-└── tests/                   # Workflow validation scenarios
+├── bridge.sh                    # Backend-agnostic dispatcher
+├── CLAUDE.md                    # Project-level instructions
+└── tests/                       # Workflow validation scenarios
 ```
+
+## License
+
+MIT
