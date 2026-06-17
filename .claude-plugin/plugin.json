@@ -1,6 +1,6 @@
 {
   "name": "code-delegate",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Offload token-heavy coding tasks to local or cloud AI agents — free via local LLMs (OpenCode + Ollama/LM Studio) or paid via Claude/Codex. Parallel dispatch, stall detection, test gates, review-before-merge.",
   "author": {
     "name": "Ismail Imani",
