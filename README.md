@@ -51,6 +51,14 @@ curl -fsSL https://opencode.ai/install | bash
 ```
 Configure with LM Studio, Ollama, or any OpenAI-compatible server.
 
+The opencode backend ships with an empty `default_model` so a fresh install stays portable — when no `Model:` header is set, opencode falls back to whatever model is configured in your own `opencode.json`. To pin a personal default without editing the committed config, export a per-backend env var (machine-local, never committed):
+
+```bash
+export OPENCODE_DELEGATE_MODEL="ollama/qwen3.6:27b"
+```
+
+Precedence (highest first): `Model:` task header → `<BACKEND>_DELEGATE_MODEL` env var → config `default_model` → the CLI's own default.
+
 **Claude Code CLI (already installed if you're reading this):**
 The `claude` CLI is the Claude backend — no extra setup needed.
 
