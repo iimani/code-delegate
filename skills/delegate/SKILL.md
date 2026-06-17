@@ -62,6 +62,7 @@ One sentence describing what this achieves.
 - `Test:` (optional) — shell command to run as a test gate after implementation
 - `Files:` (optional) — comma-separated list of files the agent should touch
 - `Timeout:` (optional) — wall-clock kill limit in seconds (default: 3600 = 60 min)
+- `StallTimeout:` (optional) — seconds of log silence before the agent is killed (default: 600 = 10 min). Increase for large remote models (e.g. `StallTimeout: 1200` for a 70B model that takes time to produce its first token)
 - `MaxFails:` (optional) — abort after this many failure-pattern matches in the log (default: 8; set to 0 to disable)
 - `FailPattern:` (optional) — ERE pattern counted as one failure hit (default: `build commands failed|compilation error|FAILED|npm ERR!`)
 
