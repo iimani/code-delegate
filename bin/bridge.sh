@@ -21,7 +21,7 @@ DEP_DIRS=("node_modules" "venv" ".venv" "vendor" "target" ".build")
 DEFAULT_WALL_TIMEOUT=3600   # 60 minutes
 DEFAULT_MAX_FAILS=8         # abort after this many detected failure pattern matches
 DEFAULT_FAIL_PATTERN="build commands failed|compilation error|FAILED|npm ERR!"
-DEFAULT_STALL_SECONDS=600   # kill if log has no new bytes for this many seconds (10 min default — large remote models need time for first token)
+DEFAULT_STALL_SECONDS=300   # kill if log has no new bytes for this many seconds (5 min default — override with StallTimeout: header for large remote models)
 
 json_output() {
     local status="$1" branch="${2:-}" slug="${3:-}" worktree="${4:-}" test_exit="${5:-}" test_cmd="${6:-}" msg="${7:-}" suggestion="${8:-}"
