@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "code-delegate",
-  "description": "Delegate code implementation to local or cloud AI agents using isolated Git worktrees with pluggable backends",
+  "description": "Parallel AI coding agents — free local LLMs or cloud APIs, with test gates and review-before-merge",
   "owner": {
     "name": "Ismail Imani",
     "email": "anthropic@iimani.ch"
@@ -10,7 +10,7 @@
     {
       "name": "code-delegate",
       "version": "1.0.0",
-      "description": "Delegate code implementation to local or cloud AI agents using isolated Git worktrees. Pluggable backends: opencode (local LLMs), claude (Anthropic API), codex (OpenAI). Features smart fallback, model escalation, and tiered security delegation.",
+      "description": "Offload implementation tasks to AI coding agents in isolated Git worktrees. Use local LLMs for free (OpenCode + Ollama/LM Studio) or cloud APIs (Claude, Codex). Parallel dispatch, per-task model selection, stall detection, failure loop prevention, and test gates.",
       "author": {
         "name": "Ismail Imani"
       },

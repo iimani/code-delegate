@@ -1,4 +1,4 @@
-# Code Delegate — Multi-Backend Code Delegation Plugin
+# Code Delegate — Parallel AI Coding Agents for Claude Code
 
 A cross-platform plugin that delegates token-heavy implementation tasks to local or cloud AI agents. Works with **Claude Code**, **Codex CLI**, and **OpenCode CLI**. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents across different backends.
 
