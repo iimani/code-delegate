@@ -33,6 +33,7 @@ fi
 
 STALE_HOURS=8
 NOW=$(date +%s)
+MERGED_BRANCHES=$(git -C "$GIT_ROOT" branch --merged main 2>/dev/null || true)
 
 for dir in "${dirs[@]}"; do
   [[ -d "$dir" ]] || continue
@@ -48,11 +49,17 @@ for dir in "${dirs[@]}"; do
     if (( log_age > STALE_HOURS * 3600 )); then
       stale=true
     fi
+  else
+    dir_mtime=$(stat -f %m "$dir" 2>/dev/null || stat -c %Y "$dir" 2>/dev/null || echo "$NOW")
+    log_age=$(( NOW - dir_mtime ))
+    if (( log_age > STALE_HOURS * 3600 )); then
+      stale=true
+    fi
   fi
 
   merged=false
   if [[ -n "$branch" && "$branch" != "unknown" ]]; then
-    if git -C "$GIT_ROOT" branch --merged main 2>/dev/null | grep -qF "$branch"; then
+    if echo "$MERGED_BRANCHES" | grep -qxF "  $branch"; then
       merged=true
     fi
   fi

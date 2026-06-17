@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CANDIDATE_1="$SCRIPT_DIR/../bin/bridge.sh"
@@ -13,8 +13,6 @@ else
   exit 0
 fi
 
-"$BRIDGE_CMD" --backends 2>&1 | while IFS= read -r line; do
-  echo "[code-delegate] $line" >&2
-done
+"$BRIDGE_CMD" --backends 2>&1 | sed 's/^/[code-delegate] /' >&2 || true
 
 exit 0
