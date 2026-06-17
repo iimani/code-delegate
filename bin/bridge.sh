@@ -104,35 +104,32 @@ resolve_model() {
     local backend="$1" model="$2"
     local config_file="$PLUGIN_ROOT/backends/${backend}/config.yaml"
 
-    # If model is already set, try to resolve alias → id
-    if [ -n "$model" ]; then
-        local resolved
-        resolved="$(awk -v alias="$model" '
-            /^ *- alias:/ { a=$NF }
-            /^ *id:/ { if (a == alias) { print $NF; exit } }
-        ' "$config_file" 2>/dev/null)"
-        if [ -n "$resolved" ]; then
-            echo "$resolved"
-        else
-            # Not an alias — pass through as-is (might be a raw model ID)
-            echo "$model"
-        fi
-        return
+    # Precedence when no explicit Model: header is given:
+    #   1. Model: header (passed in as $model)
+    #   2. per-backend env override (e.g. OPENCODE_DELEGATE_MODEL) — machine-local,
+    #      keeps personal defaults out of the committed config so fresh installs stay portable
+    #   3. config.yaml default_model (kept empty for opencode so it defers to opencode.json)
+    #   4. empty — the backend runner omits --model and the CLI picks its own default
+    if [ -z "$model" ]; then
+        local env_var
+        env_var="$(printf '%s' "$backend" | tr '[:lower:]' '[:upper:]')_DELEGATE_MODEL"
+        model="${!env_var:-}"
+    fi
+    if [ -z "$model" ]; then
+        model="$(grep '^default_model:' "$config_file" | sed 's/^default_model:[[:space:]]*//' | tr -d '"')"
     fi
 
-    # No model specified — use backend default
-    local default_model
-    default_model="$(grep '^default_model:' "$config_file" | sed 's/^default_model:[[:space:]]*//')"
-    if [ -n "$default_model" ]; then
-        # Resolve the default alias too
-        local resolved
-        resolved="$(awk -v alias="$default_model" '
-            /^ *- alias:/ { a=$NF }
-            /^ *id:/ { if (a == alias) { print $NF; exit } }
-        ' "$config_file" 2>/dev/null)"
-        echo "${resolved:-$default_model}"
-    fi
-    # Empty string if no default — backend runner handles it
+    # Nothing resolved — let the backend runner handle an empty model
+    [ -n "$model" ] || return
+
+    # Resolve alias → id; pass through unchanged if it is not a known alias
+    # (e.g. a raw dynamic model ID like ollama/qwen3.6:27b)
+    local resolved
+    resolved="$(awk -v alias="$model" '
+        /^ *- alias:/ { a=$NF }
+        /^ *id:/ { if (a == alias) { print $NF; exit } }
+    ' "$config_file" 2>/dev/null)"
+    echo "${resolved:-$model}"
 }
 
 get_model_escalation() {
@@ -346,7 +343,7 @@ start_watcher() {
 
             # Failure loop detection — strip ANSI codes before counting
             if [ -n "$fail_pattern" ] && [ "$max_fails" -gt 0 ]; then
-                fail_count=$(sed 's/\x1b\[[0-9;]*m//g' "$log" 2>/dev/null | grep -cE "$fail_pattern" 2>/dev/null || echo 0)
+                fail_count=$(sed 's/\x1b\[[0-9;]*m//g' "$log" 2>/dev/null | grep -cE "$fail_pattern" 2>/dev/null) || fail_count=0
                 fail_count=$(echo "$fail_count" | tr -d '[:space:]')
                 if [ "$fail_count" -ge "$max_fails" ]; then
                     echo "[BRIDGE] $(date '+%H:%M:%S') Loop: $fail_count failures detected (limit $max_fails)" >> "$log"

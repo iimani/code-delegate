@@ -6,9 +6,11 @@ models:
   - alias: o3
     id: o3
     description: "OpenAI o3 — strong reasoning"
+    security_ok: false
   - alias: o4-mini
     id: o4-mini
     description: "OpenAI o4-mini — fast, cost-effective"
+    security_ok: false
 capabilities:
   - single-file
   - boilerplate

@@ -44,7 +44,7 @@ cost_tier: free
 | `name` | yes | Backend identifier (matches directory name) |
 | `description` | yes | One-line summary |
 | `check_command` | yes | Shell command that exits 0 if the CLI is installed |
-| `default_model` | no | Alias used when no `Model:` header is set |
+| `default_model` | no | Alias used when no `Model:` header and no env override is set. Leave empty (`""`) for backends whose models are machine-specific so fresh installs stay portable. |
 | `models` | yes | Either a list of alias/id/description objects, or `dynamic` |
 | `list_models_command` | no | Shell command to list available models (for `models: dynamic`) |
 | `capabilities` | yes | List: `single-file`, `cross-file`, `type-reasoning`, `boilerplate`, `test-generation`, `crud` |
@@ -63,6 +63,12 @@ list_models_command: mybackend-cli models 2>/dev/null
 ```
 
 The bridge passes any `Model:` header value through as-is. Alias resolution is skipped.
+
+When no `Model:` header is set, the bridge resolves the model in this order: the
+per-backend env override `<BACKEND>_DELEGATE_MODEL` (e.g. `OPENCODE_DELEGATE_MODEL`),
+then the config `default_model`, then empty — in which case `run.sh` omits `--model`
+and the CLI uses its own default. This lets users pin a machine-local default without
+committing it.
 
 ## run.sh
 

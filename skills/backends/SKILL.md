@@ -2,6 +2,8 @@
 name: backends
 description: List installed code-delegate backends, their availability, models, and capabilities
 trigger: /code-delegate:backends
+allowed-tools:
+  - Bash
 ---
 
 # Code Delegate Backends
@@ -10,7 +12,7 @@ List all available delegation backends and their status.
 
 Run: `bridge.sh --backends`
 
-For each backend, also read `backends/<name>/config.yaml` and present a formatted table:
+Present the output as a formatted table:
 
 | Backend  | Available | Cost | Capabilities                     |
 |----------|-----------|------|----------------------------------|

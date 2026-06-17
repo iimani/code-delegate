@@ -8,5 +8,16 @@
   },
   "homepage": "https://github.com/iimani/code-delegate",
   "repository": "https://github.com/iimani/code-delegate",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "delegation",
+    "worktree",
+    "multi-backend",
+    "parallel-agents",
+    "opencode",
+    "codex",
+    "local-llm",
+    "code-generation",
+    "subagent"
+  ]
 }

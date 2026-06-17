@@ -1,16 +1,21 @@
 ---
 name: delegate
-description: Delegate code implementation to local or cloud AI agents using isolated Git worktrees for parallel execution.
+description: This skill should be used when the user asks to implement a feature, write boilerplate, generate tests, or execute any multi-file coding plan. Trigger phrases include "implement this", "build this", "write the code for", "generate tests for", "execute the plan". Routes tasks to local or cloud AI agents in isolated Git worktrees instead of writing code inline.
 trigger: /code-delegate
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
 ---
 
 # Code Delegate
 
-This command allows Claude Code to act as a high-level Architect and Code Reviewer, offloading token-heavy coding tasks to local or cloud AI agents. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents. Available backends: opencode (local, free), claude (Anthropic API), codex (OpenAI).
+Acts as a high-level Architect and Code Reviewer, offloading token-heavy coding tasks to local or cloud AI agents. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents. Available backends: opencode (local, free), claude (Anthropic API), codex (OpenAI).
 
 ## When to Use
 
-When the user asks you to implement a complex plan, write heavy boilerplate, or generate exhaustive test suites, use this skill instead of writing the code yourself.
+Use this skill when the user asks to implement a complex plan, write heavy boilerplate, or generate exhaustive test suites — delegate instead of writing the code directly.
 
 ## Slug Convention
 
@@ -257,6 +262,6 @@ If the bridge returns `"status": "aborted"`, the watcher killed the agent due to
 
 ## Notes
 - Do not write massive blocks of code directly if this skill is available.
-- Bridge path is resolved relative to the skill's install directory.
+- The Claude Code plugin framework adds the plugin's `bin/` directory to PATH using its absolute install path — invoke `bridge.sh` as a bare command and the framework resolves it correctly. Manual installs outside the plugin framework must add `<plugin-root>/bin` to PATH explicitly.
 - Worktrees are stored in `.git/worktrees_agents/` — inside `.git/`, so invisible to the project.
 - Dependencies (node_modules, venv, vendor, etc.) are auto-symlinked into worktrees.
