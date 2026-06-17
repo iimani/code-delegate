@@ -10,11 +10,21 @@ allowed-tools:
 
 # Code Delegate
 
+Bundled flow: plan → distribute → dispatch in one step. For individual steps, use `/code-delegate:plan`, `/code-delegate:distribute`, or `/code-delegate:dispatch`.
+
 Acts as a high-level Architect and Code Reviewer, offloading token-heavy coding tasks to local or cloud AI agents. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents. Available backends: opencode (local, free), claude (Anthropic API), codex (OpenAI).
 
 ## When to Use
 
 Use this skill when the user asks to implement a complex plan, write heavy boilerplate, or generate exhaustive test suites — delegate instead of writing the code directly.
+
+## Bundled Flow
+
+Run all three steps in sequence:
+
+1. **Plan** — Break requirements into sub-tasks, write `.local_task_*.md` files. See `/code-delegate:plan` for detailed planning guidance.
+2. **Distribute** — Classify each task, run `bridge.sh --models`, present distribution summary, wait for user approval, write `Backend`/`Model` headers. See `/code-delegate:distribute` for classification criteria.
+3. **Dispatch** — Run `bridge.sh <slug>` for each task (parallel for multiple). See `/code-delegate:dispatch` for execution protocol, fallback handling, and monitoring.
 
 ## Slug Convention
 
@@ -265,3 +275,10 @@ If the bridge returns `"status": "aborted"`, the watcher killed the agent due to
 - The Claude Code plugin framework adds the plugin's `bin/` directory to PATH using its absolute install path — invoke `bridge.sh` as a bare command and the framework resolves it correctly. Manual installs outside the plugin framework must add `<plugin-root>/bin` to PATH explicitly.
 - Worktrees are stored in `.git/worktrees_agents/` — inside `.git/`, so invisible to the project.
 - Dependencies (node_modules, venv, vendor, etc.) are auto-symlinked into worktrees.
+
+## Sub-Skills
+
+For granular control, use the individual steps:
+- `/code-delegate:plan` — write task files from requirements (no backend/model assignment)
+- `/code-delegate:distribute` — analyze tasks and assign backends/models
+- `/code-delegate:dispatch [slug...]` — execute task files via bridge.sh
