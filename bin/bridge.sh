@@ -343,7 +343,7 @@ start_watcher() {
 
             # Failure loop detection — strip ANSI codes before counting
             if [ -n "$fail_pattern" ] && [ "$max_fails" -gt 0 ]; then
-                fail_count=$(sed 's/\x1b\[[0-9;]*m//g' "$log" 2>/dev/null | grep -cE "$fail_pattern" 2>/dev/null || echo 0)
+                fail_count=$(sed 's/\x1b\[[0-9;]*m//g' "$log" 2>/dev/null | grep -cE "$fail_pattern" 2>/dev/null) || fail_count=0
                 fail_count=$(echo "$fail_count" | tr -d '[:space:]')
                 if [ "$fail_count" -ge "$max_fails" ]; then
                     echo "[BRIDGE] $(date '+%H:%M:%S') Loop: $fail_count failures detected (limit $max_fails)" >> "$log"
