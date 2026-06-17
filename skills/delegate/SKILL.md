@@ -6,7 +6,6 @@ allowed-tools:
   - Bash
   - Read
   - Write
-  - Glob
 ---
 
 # Code Delegate
