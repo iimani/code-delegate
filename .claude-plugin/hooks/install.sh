@@ -14,7 +14,8 @@ if [[ "$*" != *"--force"* ]] && [[ -f "$SETTINGS" ]]; then
   already=$(python3 - "$SETTINGS" <<'PYEOF'
 import json, sys
 try:
-    data = json.load(open(sys.argv[1]))
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
     hooks = data.get("hooks", {})
     events = ["SessionStart", "PreToolUse", "Stop"]
     found = 0
