@@ -330,6 +330,22 @@ start_watcher() {
             cur_size=$(wc -c < "$log" 2>/dev/null | tr -d ' ' || echo 0)
             if [ "$cur_size" -eq "$last_size" ]; then
                 stall_elapsed=$((stall_elapsed + 10))
+
+                # CPU-based liveness: if the process is actively consuming CPU,
+                # it's computing (e.g. a local model tokenising) — reset stall timer.
+                # Remote models block on network I/O so CPU stays ~0; for those,
+                # the heartbeat below provides visibility instead.
+                cpu_raw=$(ps -p "$pid" -o %cpu= 2>/dev/null | tr -d ' .')
+                if [ -n "$cpu_raw" ] && [ "$cpu_raw" -gt 0 ] 2>/dev/null; then
+                    stall_elapsed=0
+                fi
+
+                # Heartbeat: log a "still waiting" line every 60 s during silence
+                # so `bridge.sh --logs` shows the process is alive and the stall budget.
+                if [ "$stall_elapsed" -gt 0 ] && [ $(( stall_elapsed % 60 )) -eq 0 ]; then
+                    echo "[BRIDGE] $(date '+%H:%M:%S') Waiting: no output for ${stall_elapsed}s, process alive (limit ${stall_seconds}s)" >> "$log"
+                fi
+
                 if [ "$stall_elapsed" -ge "$stall_seconds" ]; then
                     echo "[BRIDGE] $(date '+%H:%M:%S') Stall: no log activity for ${stall_seconds}s" >> "$log"
                     echo "stall: no activity for ${stall_seconds}s" > "$abort_file"
