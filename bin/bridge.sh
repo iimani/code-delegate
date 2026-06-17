@@ -21,7 +21,7 @@ DEP_DIRS=("node_modules" "venv" ".venv" "vendor" "target" ".build")
 DEFAULT_WALL_TIMEOUT=3600   # 60 minutes
 DEFAULT_MAX_FAILS=8         # abort after this many detected failure pattern matches
 DEFAULT_FAIL_PATTERN="build commands failed|compilation error|FAILED|npm ERR!"
-STALL_SECONDS=180           # kill if log has no new bytes for this many seconds
+DEFAULT_STALL_SECONDS=600   # kill if log has no new bytes for this many seconds (10 min default — large remote models need time for first token)
 
 json_output() {
     local status="$1" branch="${2:-}" slug="${3:-}" worktree="${4:-}" test_exit="${5:-}" test_cmd="${6:-}" msg="${7:-}" suggestion="${8:-}"
@@ -307,7 +307,7 @@ run_test_gate() {
 is_alive() { kill -0 "$1" 2>/dev/null; }
 
 start_watcher() {
-    local pid="$1" log="$2" wall_timeout="$3" max_fails="$4" fail_pattern="$5" abort_file="$6"
+    local pid="$1" log="$2" wall_timeout="$3" max_fails="$4" fail_pattern="$5" abort_file="$6" stall_seconds="$7"
     (
         elapsed=0
         last_size=0
@@ -330,9 +330,9 @@ start_watcher() {
             cur_size=$(wc -c < "$log" 2>/dev/null | tr -d ' ' || echo 0)
             if [ "$cur_size" -eq "$last_size" ]; then
                 stall_elapsed=$((stall_elapsed + 10))
-                if [ "$stall_elapsed" -ge "$STALL_SECONDS" ]; then
-                    echo "[BRIDGE] $(date '+%H:%M:%S') Stall: no log activity for ${STALL_SECONDS}s" >> "$log"
-                    echo "stall: no activity for ${STALL_SECONDS}s" > "$abort_file"
+                if [ "$stall_elapsed" -ge "$stall_seconds" ]; then
+                    echo "[BRIDGE] $(date '+%H:%M:%S') Stall: no log activity for ${stall_seconds}s" >> "$log"
+                    echo "stall: no activity for ${stall_seconds}s" > "$abort_file"
                     kill "$pid" 2>/dev/null || true
                     break
                 fi
@@ -545,10 +545,12 @@ FILES="$(parse_header "$INSTRUCTION_FILE" "Files")"
 WALL_TIMEOUT="$(parse_header "$INSTRUCTION_FILE" "Timeout")"
 MAX_FAILS="$(parse_header "$INSTRUCTION_FILE" "MaxFails")"
 FAIL_PATTERN="$(parse_header "$INSTRUCTION_FILE" "FailPattern")"
+STALL_SECONDS="$(parse_header "$INSTRUCTION_FILE" "StallTimeout")"
 
 WALL_TIMEOUT="${WALL_TIMEOUT:-$DEFAULT_WALL_TIMEOUT}"
 MAX_FAILS="${MAX_FAILS:-$DEFAULT_MAX_FAILS}"
 FAIL_PATTERN="${FAIL_PATTERN:-$DEFAULT_FAIL_PATTERN}"
+STALL_SECONDS="${STALL_SECONDS:-$DEFAULT_STALL_SECONDS}"
 
 [ -n "$BRANCH" ] || die "No Branch: header found in $INSTRUCTION_FILE"
 
@@ -604,7 +606,7 @@ ABORT_FILE="${WORKTREE_PATH}/.bridge_abort"
 rm -f "$ABORT_FILE"
 
 echo "Invoking ${BACKEND} backend in $WORKTREE_PATH..."
-echo "[$(date '+%H:%M:%S')] Starting ${BACKEND} for $SLUG ($MODE mode) | timeout=${WALL_TIMEOUT}s max_fails=${MAX_FAILS}" > "$LOG_FILE"
+echo "[$(date '+%H:%M:%S')] Starting ${BACKEND} for $SLUG ($MODE mode) | timeout=${WALL_TIMEOUT}s stall=${STALL_SECONDS}s max_fails=${MAX_FAILS}" > "$LOG_FILE"
 echo "  Follow progress: bridge.sh --logs $SLUG"
 
 # Use exec inside the subshell so the PID we track IS the backend process,
@@ -615,7 +617,7 @@ OPENCODE_EXIT=0
 ) >> "$LOG_FILE" 2>&1 &
 OC_PID=$!
 
-WATCHER_PID=$(start_watcher "$OC_PID" "$LOG_FILE" "$WALL_TIMEOUT" "$MAX_FAILS" "$FAIL_PATTERN" "$ABORT_FILE")
+WATCHER_PID=$(start_watcher "$OC_PID" "$LOG_FILE" "$WALL_TIMEOUT" "$MAX_FAILS" "$FAIL_PATTERN" "$ABORT_FILE" "$STALL_SECONDS")
 
 wait "$OC_PID" 2>/dev/null || OPENCODE_EXIT=$?
 kill "$WATCHER_PID" 2>/dev/null || true
