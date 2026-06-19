@@ -1,6 +1,7 @@
 ---
 name: distribute
 description: Analyze planned .local_task_*.md files and assign backends and models based on task complexity, security requirements, and available backends. Use after /code-delegate:plan or when you want to re-analyze task distribution with different available models.
+trigger: /code-delegate:distribute
 allowed-tools:
   - Bash
   - Read
