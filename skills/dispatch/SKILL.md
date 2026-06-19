@@ -1,12 +1,13 @@
 ---
 name: dispatch
-description: Execute planned and distributed .local_task_*.md files by running bridge.sh for each task. Use after /code-delegate:plan and /code-delegate:distribute, or when task files already have Backend and Model headers. Supports parallel dispatch, monitoring, feedback loops, and fallback handling.
+description: This skill should be used when the user asks to dispatch tasks, run the bridge, execute task files, or launch agents. Trigger phrases include "dispatch the tasks", "run the tasks", "execute the task files", "launch the agents", "start the bridge". Executes .local_task_*.md files via bridge.sh with parallel dispatch, monitoring, feedback loops, and fallback handling.
 trigger: /code-delegate:dispatch
 argument-hint: "[slug...] — optional specific slugs to dispatch (default: all task files)"
 allowed-tools:
   - Bash
   - Read
   - Write
+  - Glob
 ---
 
 Execute `.local_task_*.md` files via `bridge.sh`. No planning, no distribution analysis — task files must already have `Branch:` and `Backend:` headers set by prior plan/distribute steps.
@@ -16,7 +17,7 @@ Execute `.local_task_*.md` files via `bridge.sh`. No planning, no distribution a
 If slug arguments were passed, dispatch only those specific tasks. Otherwise find all `.local_task_*.md` files in the project root.
 
 For each task file:
-- **`Branch:` header is required.** Abort with a clear error if missing — the file is not ready to dispatch.
+- **`Branch:` header is required.** Skip the task and report an error if missing — the file is not ready to dispatch. Continue dispatching remaining tasks.
 - **Warn if `Backend:` is missing.** Bridge will auto-select, but tell the user so they can correct it.
 - **Skip tasks with no `Backend:` header that are marked IMPLEMENT DIRECTLY.** Do not dispatch them — handle them yourself or tell the user.
 
@@ -81,6 +82,7 @@ You can also call `bridge.sh --suggest '<json>'` to get a fallback suggestion wi
 
 While background tasks run, use these to check progress:
 ```
+bridge.sh --status            # list all active agent worktrees
 bridge.sh --logs              # tail all agents
 bridge.sh --logs <slug>       # full log for one agent
 ```
