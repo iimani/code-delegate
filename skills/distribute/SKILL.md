@@ -1,11 +1,13 @@
 ---
 name: distribute
-description: Analyze planned .local_task_*.md files and assign backends and models based on task complexity, security requirements, and available backends. Use after /code-delegate:plan or when you want to re-analyze task distribution with different available models.
+description: This skill should be used when the user asks to distribute tasks, assign backends and models, re-distribute task assignments, or change which model handles a task. Trigger phrases include "distribute", "assign models", "pick backends", "re-distribute", "change model for". Analyzes existing .local_task_*.md files and writes Backend/Model headers based on complexity, security requirements, and available backends.
 trigger: /code-delegate:distribute
 allowed-tools:
   - Bash
   - Read
   - Edit
+  - Grep
+  - Glob
 ---
 
 # Distribute
