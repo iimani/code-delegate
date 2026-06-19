@@ -1,6 +1,7 @@
 ---
 name: plan
 description: Plan coding tasks by writing .local_task_*.md specification files from requirements. Use when the user wants to plan work for later delegation, or when breaking a complex feature into delegatable sub-tasks. Does NOT assign backends or models — use /code-delegate:distribute for that.
+trigger: /code-delegate:plan
 allowed-tools:
   - Bash
   - Read
