@@ -1,16 +1,18 @@
 ---
 name: plan
-description: Plan coding tasks by writing .local_task_*.md specification files from requirements. Use when the user wants to plan work for later delegation, or when breaking a complex feature into delegatable sub-tasks. Does NOT assign backends or models — use /code-delegate:distribute for that.
+description: This skill should be used when the user asks to plan coding work, break a feature into sub-tasks, write task specs, or prepare work for delegation. Trigger phrases include "plan the implementation", "break this into tasks", "write task files for", "plan the work". Writes .local_task_*.md specification files from requirements without assigning backends or models.
 trigger: /code-delegate:plan
 allowed-tools:
   - Bash
   - Read
   - Write
+  - Grep
+  - Glob
 ---
 
 # Plan
 
-Writes `.local_task_<slug>.md` specification files from requirements. No backend or model assignment — that is the distribute step's job.
+Writes `.local_task_<slug>.md` specification files from requirements. Do not assign backends or models — the distribute step handles assignment.
 
 ## Slug Convention
 
@@ -67,9 +69,8 @@ One sentence describing what this achieves.
 - Bullet points only, no prose paragraphs
 - `CREATE` / `MODIFY` / `DELETE` verbs per file section
 - Include line range hints for modifications
-- Keep constraints explicit — scope creep is a common failure mode
-- **NEVER write code blocks or function bodies.** Describe WHAT to build, not HOW. Say "add a `fetchUser(id:)` method that calls the `/users/:id` endpoint" — don't write the function.
 - Keep constraints explicit — local models are prone to scope creep
+- **NEVER write code blocks or function bodies.** Describe WHAT to build, not HOW. Say "add a `fetchUser(id:)` method that calls the `/users/:id` endpoint" — don't write the function.
 
 See `/code-delegate:delegate` for the full task file format and header reference.
 
