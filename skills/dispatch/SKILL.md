@@ -1,6 +1,7 @@
 ---
 name: dispatch
 description: Execute planned and distributed .local_task_*.md files by running bridge.sh for each task. Use after /code-delegate:plan and /code-delegate:distribute, or when task files already have Backend and Model headers. Supports parallel dispatch, monitoring, feedback loops, and fallback handling.
+trigger: /code-delegate:dispatch
 argument-hint: "[slug...] — optional specific slugs to dispatch (default: all task files)"
 allowed-tools:
   - Bash
