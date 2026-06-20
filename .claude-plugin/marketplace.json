@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "code-delegate",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "description": "Offload implementation tasks to AI coding agents in isolated Git worktrees. Use local LLMs for free (OpenCode + Ollama/LM Studio) or cloud APIs (Claude, Codex). Parallel dispatch, per-task model selection, stall detection, failure loop prevention, and test gates.",
       "author": {
         "name": "Ismail Imani"
