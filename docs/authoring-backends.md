@@ -102,6 +102,10 @@ exec "${CMD[@]}" "$TASK_CONTENT"
 - **Commits**: The backend should commit its changes to the worktree's branch
 - **No interactivity**: The script runs unattended with no TTY
 
+## Enterprise deployments (Bedrock / Vertex / internal gateways)
+
+The `models:` list in `config.yaml` maps human-friendly aliases to the exact model ID the backend CLI expects. Consumer aliases like `opus`/`sonnet`/`haiku` only resolve correctly against Anthropic's API console. If your organization routes Claude Code through Bedrock, Vertex, or an internal proxy, the underlying CLI needs different model ID strings (e.g. Bedrock's `anthropic.claude-sonnet-...` inference profile IDs) and its own auth env vars (`CLAUDE_CODE_USE_BEDROCK`, AWS/GCP credentials, etc.) — set those up for the CLI itself, outside this plugin, then update `backends/claude/config.yaml`'s `id:` fields to match. The same applies to any backend pointed at an internal AI gateway instead of a vendor's public API: `check_command` and `default_model` are the two fields most likely to need a local override.
+
 ## Testing
 
 After adding your backend:

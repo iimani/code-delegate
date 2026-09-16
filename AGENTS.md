@@ -56,4 +56,4 @@ OpenCode has Claude Code compatibility — most tool names work as-is. Key diffe
 ## SECURITY RULE — tiered delegation for security-sensitive tasks
 
 - **Never delegate to local models** (opencode): auth logic, token/signature validation (JWT, OAuth, HMAC), cryptography, secret handling, or input validation at trust boundaries. Local models are not auditable.
-- **May delegate to security-approved backend+model combos** (currently: `claude/opus`). Run `bridge.sh --security-check <backend> <model>` to verify before delegating. If not approved, suggest escalation or implement directly.
+- **May delegate to security-approved backend+model combos.** Run `bridge.sh --security-check <backend> <model>` to verify before delegating — the approved list lives in each backend's `config.yaml` (`security_ok: true`), not here, so it stays current without editing this file. If not approved, suggest escalation or implement directly.

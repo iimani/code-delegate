@@ -23,8 +23,21 @@ DEFAULT_MAX_FAILS=8         # abort after this many detected failure pattern mat
 DEFAULT_FAIL_PATTERN="build commands failed|compilation error|FAILED|npm ERR!"
 DEFAULT_STALL_SECONDS=300   # kill if log has no new bytes for this many seconds (5 min default — override with StallTimeout: header for large remote models)
 
+json_escape() {
+    # Escapes backslashes, double quotes, and control chars so arbitrary
+    # strings (test commands, failure messages) can't corrupt the JSON
+    # status line every skill parses as the bridge's final stdout line.
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' '
+}
+
 json_output() {
     local status="$1" branch="${2:-}" slug="${3:-}" worktree="${4:-}" test_exit="${5:-}" test_cmd="${6:-}" msg="${7:-}" suggestion="${8:-}"
+    status="$(json_escape "$status")"
+    branch="$(json_escape "$branch")"
+    slug="$(json_escape "$slug")"
+    worktree="$(json_escape "$worktree")"
+    test_cmd="$(json_escape "$test_cmd")"
+    msg="$(json_escape "$msg")"
     if [ -n "$suggestion" ]; then
         printf '{"status":"%s","branch":"%s","slug":"%s","worktree":"%s","test_exit_code":%s,"test_command":"%s","message":"%s","suggestion":%s}\n' \
             "$status" "$branch" "$slug" "$worktree" "${test_exit:-null}" "$test_cmd" "$msg" "$suggestion"
@@ -557,7 +570,6 @@ fi
 BRANCH="$(parse_header "$INSTRUCTION_FILE" "Branch")"
 MODEL="$(parse_header "$INSTRUCTION_FILE" "Model")"
 TEST_CMD="$(parse_header "$INSTRUCTION_FILE" "Test")"
-FILES="$(parse_header "$INSTRUCTION_FILE" "Files")"
 WALL_TIMEOUT="$(parse_header "$INSTRUCTION_FILE" "Timeout")"
 MAX_FAILS="$(parse_header "$INSTRUCTION_FILE" "MaxFails")"
 FAIL_PATTERN="$(parse_header "$INSTRUCTION_FILE" "FailPattern")"

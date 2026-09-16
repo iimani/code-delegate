@@ -1,7 +1,6 @@
 ---
 name: dispatch
 description: This skill should be used when the user asks to dispatch tasks, run the bridge, execute task files, or launch agents. Trigger phrases include "dispatch the tasks", "run the tasks", "execute the task files", "launch the agents", "start the bridge". Executes .local_task_*.md files via bridge.sh with parallel dispatch, monitoring, feedback loops, and fallback handling.
-trigger: /code-delegate:dispatch
 argument-hint: "[slug...] — optional specific slugs to dispatch (default: all task files)"
 allowed-tools:
   - Bash
