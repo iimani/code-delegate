@@ -1,7 +1,6 @@
 ---
 name: distribute
 description: This skill should be used when the user asks to distribute tasks, assign backends and models, re-distribute task assignments, or change which model handles a task. Trigger phrases include "distribute", "assign models", "pick backends", "re-distribute", "change model for". Analyzes existing .local_task_*.md files and writes Backend/Model headers based on complexity, security requirements, and available backends.
-trigger: /code-delegate:distribute
 allowed-tools:
   - Bash
   - Read
@@ -44,7 +43,7 @@ All of the following must hold:
 ### DELEGATE (security-approved)
 When the task touches auth, tokens, signatures (JWT, OAuth, HMAC), cryptography, or secrets:
 - **Never assign to local models** (opencode) — local models are not auditable
-- Run `bridge.sh --security-check <backend> <model>` to verify approval. Currently only `claude/opus` is approved.
+- Run `bridge.sh --security-check <backend> <model>` to verify approval. The approved list lives in each backend's `config.yaml` (`security_ok: true`) — check dynamically rather than assuming a specific model, since it changes per install.
 - If no approved backend+model is available, classify as IMPLEMENT DIRECTLY instead
 
 ### DELEGATE (larger model)

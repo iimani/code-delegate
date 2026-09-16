@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint (shellcheck, JSON, YAML)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Shellcheck all scripts
+        run: |
+          shopt -s globstar nullglob
+          files=(bin/*.sh backends/**/*.sh .claude-plugin/hooks/*.sh tests/workflow/run.sh)
+          echo "Checking: ${files[*]}"
+          shellcheck -S warning "${files[@]}"
+
+      - name: Validate JSON manifests
+        run: |
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json .claude-plugin/hooks/hooks.json .codex-plugin/plugin.json; do
+            echo "Validating $f"
+            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f"
+          done
+
+      - name: Validate backend config.yaml files
+        run: |
+          pip install --quiet pyyaml
+          python3 - <<'PYEOF'
+          import glob, sys, yaml
+
+          required = ["name", "description", "check_command", "models", "capabilities", "tags", "cost_tier"]
+          failed = False
+          for path in glob.glob("backends/*/config.yaml"):
+              with open(path) as f:
+                  data = yaml.safe_load(f)
+              missing = [k for k in required if k not in data]
+              if missing:
+                  print(f"FAIL {path}: missing required fields {missing}")
+                  failed = True
+              else:
+                  print(f"OK   {path}")
+          sys.exit(1 if failed else 0)
+          PYEOF
+
+      - name: Verify plugin.json / marketplace.json versions match
+        run: |
+          plugin_version=$(python3 -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+          marketplace_version=$(python3 -c "import json; print(json.load(open('.claude-plugin/marketplace.json'))['plugins'][0]['version'])")
+          codex_version=$(python3 -c "import json; print(json.load(open('.codex-plugin/plugin.json'))['version'])")
+          echo "plugin.json: $plugin_version | marketplace.json: $marketplace_version | codex-plugin: $codex_version"
+          if [ "$plugin_version" != "$marketplace_version" ] || [ "$plugin_version" != "$codex_version" ]; then
+            echo "Version mismatch across manifests — bump them together."
+            exit 1
+          fi
+
+  # Runs the live-prompt behavioral scenarios against the real `claude` CLI.
+  # Manual-only: these call the Anthropic API and cost real tokens, so they
+  # don't run on every push/PR — trigger via workflow_dispatch when you want
+  # to validate a skill/prompt change end-to-end.
+  workflow-scenarios:
+    name: Workflow scenarios (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run workflow scenarios
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          bash tests/workflow/run.sh

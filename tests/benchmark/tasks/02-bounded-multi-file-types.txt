@@ -1,0 +1,1 @@
+Add a type-safe in-memory cache at src/cache.ts with get/set/delete and per-key TTL support (a key expires and returns undefined after its TTL elapses), and a matching test file at src/cache.test.ts covering get/set, delete, and TTL expiry. Two new files, bounded scope, but the generic typing (the cache should be generic over the stored value type) needs some real type reasoning.

@@ -1,7 +1,6 @@
 ---
 name: backends
-description: List installed code-delegate backends, their availability, models, and capabilities
-trigger: /code-delegate:backends
+description: This skill should be used when the user asks which delegation backends or models are available, whether a CLI (opencode/claude/codex) is installed, or wants to compare backend capabilities/cost before delegating. Trigger phrases include "what backends do I have", "list available models", "is opencode installed", "which backend should I use". Lists installed code-delegate backends, their availability, models, and capabilities.
 allowed-tools:
   - Bash
 ---

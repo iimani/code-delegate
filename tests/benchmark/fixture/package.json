@@ -1,0 +1,9 @@
+{
+  "name": "code-delegate-benchmark-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Minimal seed project for tests/benchmark — not a real app, just enough structure for task prompts to touch real files.",
+  "scripts": {
+    "test": "echo 'no tests — this fixture is not compiled or run'"
+  }
+}

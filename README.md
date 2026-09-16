@@ -57,10 +57,10 @@ The opencode backend ships with an empty `default_model` so a fresh install stay
 export OPENCODE_DELEGATE_MODEL="ollama/qwen3.6:27b"
 ```
 
-Precedence (highest first): `Model:` task header → `<BACKEND>_DELEGATE_MODEL` env var → config `default_model` → the CLI's own default.
+The `<BACKEND>_DELEGATE_MODEL` pattern works for every backend, not just opencode — `CLAUDE_DELEGATE_MODEL` and `CODEX_DELEGATE_MODEL` are resolved the same way. Precedence (highest first): `Model:` task header → `<BACKEND>_DELEGATE_MODEL` env var → config `default_model` → the CLI's own default.
 
 **Claude Code CLI (already installed if you're reading this):**
-The `claude` CLI is the Claude backend — no extra setup needed.
+The `claude` CLI is the Claude backend — no extra setup needed. If your Claude access goes through Bedrock or Vertex rather than the API console, configure the `claude` CLI itself for that (e.g. `CLAUDE_CODE_USE_BEDROCK=1` plus AWS credentials) — the bridge just shells out to whatever `claude` resolves to. Note that Bedrock/Vertex model IDs (e.g. `anthropic.claude-sonnet-...`) don't match the `haiku`/`sonnet`/`opus` aliases in `backends/claude/config.yaml`; edit that file's `models:` list to match your deployment's IDs, or pass the full ID via the task file's `Model:` header.
 
 **Codex CLI:**
 ```bash
@@ -103,6 +103,10 @@ Review git diff
     (pass) merge  ──or──  (fail) apply suggestion → re-run
 ```
 
+## Trust Model
+
+`bridge.sh` runs task files, test commands, and each backend's `check_command`/`list_models_command` via `eval`. That's by design, not an oversight: task files are written locally by the orchestrating Claude/Codex/OpenCode session (not fetched from the network), and `Test:`/`check_command`/`list_models_command` are values you or a teammate put in your own repo's task files and `backends/*/config.yaml`. Treat those config files with the same care as any other script in the repo — anyone who can edit them can run arbitrary shell.
+
 ## Usage
 
 ### Slash commands
@@ -137,7 +141,7 @@ instead of writing code yourself. Invoke via: Skill tool → skill: "code-delega
 ## Features
 
 - **Multi-backend dispatch** — route tasks to local models (free) or cloud APIs (capable) based on complexity
-- **Auto-selection** — bridge picks the best available backend based on task files, cross-file needs, and cost tier
+- **Auto-selection** — bridge picks the best available backend based on task files, cross-file needs, and cost tier. For backends with `models: dynamic` (opencode), "available" also means a model is actually loaded right now, not just that the CLI is installed — a dispatch or `Model:` header against an unavailable/unknown model fails fast with a suggestion instead of failing deep inside the backend
 - **Model escalation** — when a task fails, the bridge suggests the next model up (haiku → sonnet → opus) or a cross-backend fallback
 - **Tiered security** — security-sensitive tasks (auth, crypto, secrets) are blocked from local models but can be delegated to approved combos like `claude/opus`
 - **Parallel execution** — dispatch multiple tasks simultaneously, each in its own Git worktree
@@ -211,7 +215,9 @@ code-delegate/
 │   └── bridge.sh                # Backend-agnostic dispatcher
 ├── CLAUDE.md                    # Claude Code instructions
 ├── AGENTS.md                    # Codex/OpenCode instructions + tool mappings
-└── tests/                       # Workflow validation scenarios
+└── tests/
+    ├── workflow/                # Behavioral validation scenarios (does it classify/route correctly?)
+    └── benchmark/                # Orchestrator cost/token impact of delegating vs. implementing directly
 ```
 
 ## License

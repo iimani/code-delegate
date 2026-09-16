@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-16
+
+### Added
+- CI workflow: shellcheck, JSON manifest validation, backend `config.yaml` schema check, and a manual `workflow_dispatch` job for the live-prompt scenario suite (#27)
+- Trust-model note in README covering `eval` usage in `check_command`/`list_models_command`/`Test:`
+- Enterprise deployment guidance (Bedrock/Vertex/internal gateway model IDs) in `docs/authoring-backends.md`
+- Trigger-phrase coverage in `status`, `backends`, and `cleanup` skill descriptions for natural-language invocation
+- Routing and dispatch now factor in *live* model availability for `models: dynamic` backends (opencode), not just whether the CLI is installed: `Backend: auto` skips a dynamic backend with zero live models, direct dispatch to one fails fast with `no_backend` + a fallback suggestion instead of failing deep inside `run.sh`, and an unresolved `Model:` value is validated against the live list before dispatch (error lists what's actually available)
+- `tests/benchmark/` — measures the orchestrator's token/cost impact of delegating via code-delegate vs. implementing directly, using `claude --print --output-format json` in isolated scratch repos/config dirs (never touches real `~/.claude` or this repo). See `tests/benchmark/README.md` for methodology and known limitations, including why it can't measure opencode's actual savings
+
+### Fixed
+- `bridge.sh`'s JSON status output is now properly escaped — a `Test:` command containing a double quote (e.g. `--grep "foo"`) no longer corrupts the JSON line every skill parses as the bridge's result
+- Removed unused `FILES` variable in `bridge.sh` (dead code flagged by shellcheck)
+- Removed non-functional `trigger:` frontmatter key from all 7 `SKILL.md` files — it isn't a supported field; slash-command binding is by skill directory name
+- Synced `.codex-plugin/plugin.json` version with the Claude plugin manifests (was still 1.0.0)
+
+### Changed
+- Collapsed the "security-approved backend/model" policy to a single source of truth (`config.yaml`'s `security_ok`); `CLAUDE.md`, `AGENTS.md`, `delegate`, and `distribute` skills now point at `bridge.sh --security-check` instead of each hardcoding "currently claude/opus"
+- Trimmed `delegate/SKILL.md`'s duplicated Distribution Analysis and Execution Protocol sections down to pointers at `distribute`/`dispatch`, which remain the canonical copies (the two had already drifted in wording)
+- Documented that `<BACKEND>_DELEGATE_MODEL` env overrides apply to every backend, not just opencode
+
 ## [1.2.0] - 2026-06-20
 
 ### Added

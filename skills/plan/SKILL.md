@@ -1,7 +1,6 @@
 ---
 name: plan
 description: This skill should be used when the user asks to plan coding work, break a feature into sub-tasks, write task specs, or prepare work for delegation. Trigger phrases include "plan the implementation", "break this into tasks", "write task files for", "plan the work". Writes .local_task_*.md specification files from requirements without assigning backends or models.
-trigger: /code-delegate:plan
 allowed-tools:
   - Bash
   - Read

@@ -1,8 +1,7 @@
 ---
 name: cleanup
-description: Remove a code-delegate agent worktree after its branch has been approved or merged
+description: This skill should be used when the user wants to remove a delegated agent's worktree after its branch has been merged or approved, or to tidy up finished/abandoned delegate tasks. Trigger phrases include "clean up the worktree", "remove the agent branch", "delete the delegate worktree for". Removes a code-delegate agent worktree after its branch has been approved or merged.
 argument-hint: <slug> — the branch slug to clean up
-trigger: /code-delegate:cleanup
 allowed-tools:
   - Bash
 ---

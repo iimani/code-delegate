@@ -1,0 +1,1 @@
+Add a structured JSON logger module at src/logger.ts. It should export a single `log(level: "debug" | "info" | "warn" | "error", message: string, context?: Record<string, unknown>)` function that writes one JSON line per call to stdout, including a timestamp field. This is a new, single file — nothing else in the project needs to change.

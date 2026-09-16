@@ -70,6 +70,22 @@ then the config `default_model`, then empty — in which case `run.sh` omits `--
 and the CLI uses its own default. This lets users pin a machine-local default without
 committing it.
 
+**`list_models_command` gates dispatch, not just display.** For a `models: dynamic`
+backend, the CLI being installed doesn't mean a model is actually loaded — the local
+server (LM Studio/Ollama) could be down or empty. The bridge treats "no output from
+`list_models_command`" as "this backend isn't really available right now":
+
+- `Backend: auto` skips a dynamic backend with zero live models and falls through to
+  the next one.
+- Dispatching to it directly fails fast with `"status": "no_backend"` (exit 10) and a
+  fallback suggestion, instead of launching the CLI and failing deep inside `run.sh`.
+- A `Model:` value that doesn't appear in the live list is rejected before dispatch,
+  with the actual available models listed in the error.
+
+Make sure `list_models_command` exits cleanly with one model per line on success and
+produces no output when nothing is available — that behavior is now load-bearing, not
+just cosmetic for `--models`.
+
 ## run.sh
 
 ```bash
@@ -101,6 +117,10 @@ exec "${CMD[@]}" "$TASK_CONTENT"
 - **Exit code**: 0 = success, non-zero = failure
 - **Commits**: The backend should commit its changes to the worktree's branch
 - **No interactivity**: The script runs unattended with no TTY
+
+## Enterprise deployments (Bedrock / Vertex / internal gateways)
+
+The `models:` list in `config.yaml` maps human-friendly aliases to the exact model ID the backend CLI expects. Consumer aliases like `opus`/`sonnet`/`haiku` only resolve correctly against Anthropic's API console. If your organization routes Claude Code through Bedrock, Vertex, or an internal proxy, the underlying CLI needs different model ID strings (e.g. Bedrock's `anthropic.claude-sonnet-...` inference profile IDs) and its own auth env vars (`CLAUDE_CODE_USE_BEDROCK`, AWS/GCP credentials, etc.) — set those up for the CLI itself, outside this plugin, then update `backends/claude/config.yaml`'s `id:` fields to match. The same applies to any backend pointed at an internal AI gateway instead of a vendor's public API: `check_command` and `default_model` are the two fields most likely to need a local override.
 
 ## Testing
 
