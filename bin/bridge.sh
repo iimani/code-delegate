@@ -99,6 +99,10 @@ auto_select_backend() {
             continue
         fi
 
+        if ! backend_has_live_models "$backend"; then
+            continue
+        fi
+
         if [ "$file_count" -gt 3 ]; then
             if grep -q 'cross_file: false' "$config"; then
                 continue
@@ -168,8 +172,59 @@ is_backend_available() {
     [ -f "$config_file" ] || return 1
     local check_cmd
     check_cmd="$(grep '^check_command:' "$config_file" | sed 's/^check_command:[[:space:]]*//')"
-    [ -z "$check_cmd" ] && return 0
-    eval "$check_cmd" >/dev/null 2>&1
+    if [ -n "$check_cmd" ] && ! eval "$check_cmd" >/dev/null 2>&1; then
+        return 1
+    fi
+    backend_has_live_models "$backend"
+}
+
+# For a backend with `models: dynamic` (currently only opencode), the CLI
+# being installed doesn't mean a model is actually loaded — the local
+# server (LM Studio/Ollama) could be down or empty. This runs the backend's
+# own list_models_command and treats "no output" as "not really available",
+# so routing reacts to what's live right now, not just what's installed.
+# Static backends (models: <alias list>, e.g. claude/codex) always pass —
+# their model IDs are fixed and presumed to exist at the provider.
+backend_has_live_models() {
+    local backend="$1"
+    local config_file="$PLUGIN_ROOT/backends/${backend}/config.yaml"
+    [ -f "$config_file" ] || return 1
+    local models_value
+    models_value="$(grep '^models:' "$config_file" | sed 's/^models:[[:space:]]*//')"
+    [ "$models_value" = "dynamic" ] || return 0
+
+    local list_cmd
+    list_cmd="$(grep '^list_models_command:' "$config_file" | sed 's/^list_models_command:[[:space:]]*//')"
+    [ -n "$list_cmd" ] || return 0
+
+    local output
+    output="$(eval "$list_cmd" 2>/dev/null)"
+    [ -n "$(echo "$output" | tr -d '[:space:]')" ]
+}
+
+# Checks a resolved Model: value against the live model list for dynamic
+# backends (static backends already alias-resolved to a configured id, so
+# nothing to check). Echoes an error message (with the live list) if the
+# model isn't found; echoes nothing if it's valid or unverifiable.
+validate_model() {
+    local backend="$1" model="$2"
+    [ -n "$model" ] || return 0
+    local config_file="$PLUGIN_ROOT/backends/${backend}/config.yaml"
+    local models_value
+    models_value="$(grep '^models:' "$config_file" | sed 's/^models:[[:space:]]*//')"
+    [ "$models_value" = "dynamic" ] || return 0
+
+    local list_cmd
+    list_cmd="$(grep '^list_models_command:' "$config_file" | sed 's/^list_models_command:[[:space:]]*//')"
+    [ -n "$list_cmd" ] || return 0
+
+    local available
+    available="$(eval "$list_cmd" 2>/dev/null)"
+    [ -n "$(echo "$available" | tr -d '[:space:]')" ] || return 0
+
+    if ! echo "$available" | grep -qF -- "$model"; then
+        echo "Model '${model}' not found in live '${backend}' model list. Available:"$'\n'"${available}"
+    fi
 }
 
 suggest_fallback() {
@@ -196,7 +251,7 @@ suggest_fallback() {
             fi
             local alt_default
             alt_default="$(grep '^default_model:' "$skill_dir/backends/${alt}/config.yaml" | sed 's/^default_model:[[:space:]]*//' | tr -d '"')"
-            printf '{"action":"switch_backend","backend":"%s","model":"%s","reason":"%s CLI not found, %s is available"}\n' \
+            printf '{"action":"switch_backend","backend":"%s","model":"%s","reason":"%s is unavailable, %s is available"}\n' \
                 "$alt" "${alt_default:-default}" "$failed_backend" "$alt"
             return 0
         done
@@ -243,15 +298,21 @@ suggest_fallback() {
 check_backend_available() {
     local backend="$1"
     local config_file="$PLUGIN_ROOT/backends/${backend}/config.yaml"
-    if [ -f "$config_file" ]; then
-        local check_cmd
-        check_cmd="$(grep '^check_command:' "$config_file" | sed 's/^check_command:[[:space:]]*//')"
-        if [ -n "$check_cmd" ] && ! eval "$check_cmd" >/dev/null 2>&1; then
-            local suggestion
-            suggestion="$(suggest_fallback "no_backend" "$backend" "" "${INSTRUCTION_FILE:-}")"
-            json_output "no_backend" "" "$SLUG" "" "" "" "${backend} CLI not found" "$suggestion"
-            exit 10
-        fi
+    [ -f "$config_file" ] || return 0
+
+    local check_cmd reason=""
+    check_cmd="$(grep '^check_command:' "$config_file" | sed 's/^check_command:[[:space:]]*//')"
+    if [ -n "$check_cmd" ] && ! eval "$check_cmd" >/dev/null 2>&1; then
+        reason="${backend} CLI not found"
+    elif ! backend_has_live_models "$backend"; then
+        reason="${backend} CLI found but no models are currently available (list_models_command returned nothing — check the local model server)"
+    fi
+
+    if [ -n "$reason" ]; then
+        local suggestion
+        suggestion="$(suggest_fallback "no_backend" "$backend" "" "${INSTRUCTION_FILE:-}")"
+        json_output "no_backend" "" "$SLUG" "" "" "" "$reason" "$suggestion"
+        exit 10
     fi
 }
 
@@ -405,10 +466,12 @@ if [ "${1:-}" = "--backends" ]; then
         dir="$(dirname "$config")"
         name="$(basename "$dir")"
         check_cmd="$(grep '^check_command:' "$config" | sed 's/^check_command:[[:space:]]*//')"
-        if [ -n "$check_cmd" ] && eval "$check_cmd" >/dev/null 2>&1; then
-            available="YES"
+        if [ -n "$check_cmd" ] && ! eval "$check_cmd" >/dev/null 2>&1; then
+            available="NO (CLI not found)"
+        elif ! backend_has_live_models "$name"; then
+            available="NO (CLI installed, no models loaded)"
         else
-            available="NO"
+            available="YES"
         fi
         desc="$(grep '^description:' "$config" | sed 's/^description:[[:space:]]*//')"
         echo "  $name ($available) — $desc"
@@ -595,6 +658,9 @@ check_backend_available "$BACKEND"
 
 # Resolve model alias → id and apply backend default
 MODEL="$(resolve_model "$BACKEND" "$MODEL")"
+
+MODEL_ERROR="$(validate_model "$BACKEND" "$MODEL")"
+[ -z "$MODEL_ERROR" ] || die "$MODEL_ERROR"
 
 if [ "$MODE" = "task" ]; then
     if [ -d "$WORKTREE_PATH" ]; then

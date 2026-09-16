@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Trust-model note in README covering `eval` usage in `check_command`/`list_models_command`/`Test:`
 - Enterprise deployment guidance (Bedrock/Vertex/internal gateway model IDs) in `docs/authoring-backends.md`
 - Trigger-phrase coverage in `status`, `backends`, and `cleanup` skill descriptions for natural-language invocation
+- Routing and dispatch now factor in *live* model availability for `models: dynamic` backends (opencode), not just whether the CLI is installed: `Backend: auto` skips a dynamic backend with zero live models, direct dispatch to one fails fast with `no_backend` + a fallback suggestion instead of failing deep inside `run.sh`, and an unresolved `Model:` value is validated against the live list before dispatch (error lists what's actually available)
 
 ### Fixed
 - `bridge.sh`'s JSON status output is now properly escaped — a `Test:` command containing a double quote (e.g. `--grep "foo"`) no longer corrupts the JSON line every skill parses as the bridge's result

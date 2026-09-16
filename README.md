@@ -141,7 +141,7 @@ instead of writing code yourself. Invoke via: Skill tool → skill: "code-delega
 ## Features
 
 - **Multi-backend dispatch** — route tasks to local models (free) or cloud APIs (capable) based on complexity
-- **Auto-selection** — bridge picks the best available backend based on task files, cross-file needs, and cost tier
+- **Auto-selection** — bridge picks the best available backend based on task files, cross-file needs, and cost tier. For backends with `models: dynamic` (opencode), "available" also means a model is actually loaded right now, not just that the CLI is installed — a dispatch or `Model:` header against an unavailable/unknown model fails fast with a suggestion instead of failing deep inside the backend
 - **Model escalation** — when a task fails, the bridge suggests the next model up (haiku → sonnet → opus) or a cross-backend fallback
 - **Tiered security** — security-sensitive tasks (auth, crypto, secrets) are blocked from local models but can be delegated to approved combos like `claude/opus`
 - **Parallel execution** — dispatch multiple tasks simultaneously, each in its own Git worktree

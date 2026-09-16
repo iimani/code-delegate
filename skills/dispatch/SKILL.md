@@ -63,7 +63,7 @@ The bridge prints this as the final stdout line:
 - If suggestion is `escalate_model` or `switch_backend`: "The agent was aborted ([reason]). Bridge suggests retrying with [backend/model]. Retry, or should I take over?"
 - If suggestion is `implement_directly` or user declines: read the original task spec and the partial diff, then implement yourself.
 
-**`no_backend` (exit 10)** — Tell the user which backend is unavailable. Present the suggestion: "The [backend] CLI isn't installed. Bridge suggests [suggestion]. Switch, or should I implement directly?" Do NOT silently fall back — always ask first.
+**`no_backend` (exit 10)** — Tell the user which backend is unavailable and why — the `message` field distinguishes "CLI not found" from "CLI found but no models are currently available" (e.g. opencode installed but LM Studio/Ollama is down or empty). Present the suggestion: "The [backend] backend isn't available right now ([reason]). Bridge suggests [suggestion]. Switch, or should I implement directly?" Do NOT silently fall back — always ask first.
 
 ## How to Present Suggestions
 

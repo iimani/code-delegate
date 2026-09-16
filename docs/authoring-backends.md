@@ -70,6 +70,22 @@ then the config `default_model`, then empty — in which case `run.sh` omits `--
 and the CLI uses its own default. This lets users pin a machine-local default without
 committing it.
 
+**`list_models_command` gates dispatch, not just display.** For a `models: dynamic`
+backend, the CLI being installed doesn't mean a model is actually loaded — the local
+server (LM Studio/Ollama) could be down or empty. The bridge treats "no output from
+`list_models_command`" as "this backend isn't really available right now":
+
+- `Backend: auto` skips a dynamic backend with zero live models and falls through to
+  the next one.
+- Dispatching to it directly fails fast with `"status": "no_backend"` (exit 10) and a
+  fallback suggestion, instead of launching the CLI and failing deep inside `run.sh`.
+- A `Model:` value that doesn't appear in the live list is rejected before dispatch,
+  with the actual available models listed in the error.
+
+Make sure `list_models_command` exits cleanly with one model per line on success and
+produces no output when nothing is available — that behavior is now load-bearing, not
+just cosmetic for `--models`.
+
 ## run.sh
 
 ```bash
