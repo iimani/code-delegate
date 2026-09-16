@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enterprise deployment guidance (Bedrock/Vertex/internal gateway model IDs) in `docs/authoring-backends.md`
 - Trigger-phrase coverage in `status`, `backends`, and `cleanup` skill descriptions for natural-language invocation
 - Routing and dispatch now factor in *live* model availability for `models: dynamic` backends (opencode), not just whether the CLI is installed: `Backend: auto` skips a dynamic backend with zero live models, direct dispatch to one fails fast with `no_backend` + a fallback suggestion instead of failing deep inside `run.sh`, and an unresolved `Model:` value is validated against the live list before dispatch (error lists what's actually available)
+- `tests/benchmark/` — measures the orchestrator's token/cost impact of delegating via code-delegate vs. implementing directly, using `claude --print --output-format json` in isolated scratch repos/config dirs (never touches real `~/.claude` or this repo). See `tests/benchmark/README.md` for methodology and known limitations, including why it can't measure opencode's actual savings
 
 ### Fixed
 - `bridge.sh`'s JSON status output is now properly escaped — a `Test:` command containing a double quote (e.g. `--grep "foo"`) no longer corrupts the JSON line every skill parses as the bridge's result

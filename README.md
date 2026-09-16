@@ -215,7 +215,9 @@ code-delegate/
 │   └── bridge.sh                # Backend-agnostic dispatcher
 ├── CLAUDE.md                    # Claude Code instructions
 ├── AGENTS.md                    # Codex/OpenCode instructions + tool mappings
-└── tests/                       # Workflow validation scenarios
+└── tests/
+    ├── workflow/                # Behavioral validation scenarios (does it classify/route correctly?)
+    └── benchmark/                # Orchestrator cost/token impact of delegating vs. implementing directly
 ```
 
 ## License

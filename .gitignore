@@ -4,6 +4,7 @@
 
 # Test results
 tests/workflow/results/
+tests/benchmark/results/
 
 # Local dev settings (machine-specific paths and permissions)
 .claude/
