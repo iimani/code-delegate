@@ -113,10 +113,29 @@ Review git diff
 
 | Command | Description |
 |---------|-------------|
-| `/code-delegate` | Main command — distribution analysis + task execution |
+| `/code-delegate` | Main command — bundled plan + distribute + dispatch in one step |
+| `/code-delegate:plan` | Break requirements into `.local_task_*.md` specs (no backend/model assignment) |
+| `/code-delegate:distribute` | Classify tasks and assign `Backend:`/`Model:` headers |
+| `/code-delegate:dispatch [slug...]` | Execute task files via `bridge.sh`, with monitoring and feedback loops |
 | `/code-delegate:status` | Show active agent worktrees and progress |
 | `/code-delegate:backends` | List installed backends and availability |
 | `/code-delegate:cleanup <slug>` | Remove a worktree after merging |
+
+## Skills Reference
+
+Each slash command above is backed by a skill under `skills/`. Skills also auto-trigger on natural-language phrasing (Claude Code matches the `description` in each `SKILL.md`), not just the explicit `/code-delegate:*` command.
+
+| Skill | Triggers on | Allowed tools | What it does |
+|-------|-------------|----------------|---------------|
+| **delegate** | "implement this", "build this", "write the code for", "generate tests for", "execute the plan" | Bash, Read, Write | Bundled flow — runs plan → distribute → dispatch in sequence. The top-level entry point for offloading a coding task instead of writing it inline. |
+| **plan** | "plan the implementation", "break this into tasks", "write task files for", "plan the work" | Bash, Read, Write, Grep, Glob | Breaks requirements into bounded sub-tasks (≤2–3 files each) and writes `.local_task_<slug>.md` spec files. Leaves `Backend:`/`Model:` headers empty — that's the distribute step's job. |
+| **distribute** | "distribute", "assign models", "pick backends", "re-distribute", "change model for" | Bash, Read, Edit, Grep, Glob | Reads existing `.local_task_*.md` files and classifies each as DELEGATE, DELEGATE (security-approved), DELEGATE (larger model), or IMPLEMENT DIRECTLY. Runs `bridge.sh --backends`/`--models` for real availability, presents a distribution summary, and writes `Backend:`/`Model:` headers after user approval. |
+| **dispatch** | "dispatch the tasks", "run the tasks", "execute the task files", "launch the agents", "start the bridge" | Bash, Read, Write, Glob | Runs `bridge.sh <slug>` for each ready task file (parallel for multiple), parses the JSON status result, handles pass/fail/error/aborted/no_backend outcomes, and manages the feedback loop (`.local_feedback_<slug>.md`) for re-runs. |
+| **status** | "what's running", "check agent status", "show active agents", "is the delegate done yet", "what worktrees are open" | Bash | Runs `bridge.sh --status` and presents active/completed agent worktrees, backend used, and last log line. |
+| **backends** | "what backends do I have", "list available models", "is opencode installed", "which backend should I use" | Bash | Runs `bridge.sh --backends` and presents installed backends, availability, cost tier, and capabilities. |
+| **cleanup** | "clean up the worktree", "remove the agent branch", "delete the delegate worktree for" | Bash | Verifies a branch has been merged, then runs `bridge.sh --cleanup <slug>` to remove its worktree. Warns and asks for confirmation if the branch isn't merged yet. |
+
+Sub-skill relationship: `delegate` is a superset that chains `plan` → `distribute` → `dispatch`. Use the individual skills directly for granular control (e.g. re-running just `distribute` after a backend goes offline) instead of the bundled flow.
 
 ### Examples
 
@@ -197,7 +216,10 @@ code-delegate/
 │   ├── plugin.json              # Plugin manifest
 │   └── marketplace.json         # Marketplace index
 ├── skills/
-│   ├── delegate/SKILL.md        # Main skill: distribution + execution
+│   ├── delegate/SKILL.md        # Bundled skill: plan + distribute + dispatch
+│   ├── plan/SKILL.md            # code-delegate:plan
+│   ├── distribute/SKILL.md      # code-delegate:distribute
+│   ├── dispatch/SKILL.md        # code-delegate:dispatch
 │   ├── status/SKILL.md          # code-delegate:status
 │   ├── backends/SKILL.md        # code-delegate:backends
 │   └── cleanup/SKILL.md         # code-delegate:cleanup
