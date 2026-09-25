@@ -177,7 +177,10 @@ def cell_stats(runs: List[dict]) -> Dict[str, object]:
         "cost_usd_median": _median(o.get("cost_usd") for o in orch),
         "delegate_cost_usd_median": _median(
             ((r.get("claude") or {}).get("delegate") or {}).get("cost_usd") for r in scored),
-        "delegated": sum(1 for r in scored if r.get("delegated")),
+        # A dispatch in the transcript counts too: an orchestrator that kills a stuck
+        # delegate and cleans up leaves no bridge log or usage record behind.
+        "delegated": sum(1 for r in scored if r.get("delegated")
+                         or "dispatch" in (r.get("orchestrator_phases") or {})),
         "bridge_attempts_median": _median(r.get("bridge_attempts") for r in scored),
         "routed_elsewhere": sum(1 for r in scored if r.get("routed_elsewhere")),
         "routes": _count("%s/%s" % (d.get("backend"), d.get("model") or "default")
