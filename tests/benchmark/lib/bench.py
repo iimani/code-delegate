@@ -33,12 +33,15 @@ BENCH_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BENCH_DIR.parent.parent
 TASKS_DIR = BENCH_DIR / "tasks"
 FIXTURE_DIR = BENCH_DIR / "fixture"
-RESULTS_DIR = BENCH_DIR / "results"
+FIXTURES = {"small": FIXTURE_DIR, "large": BENCH_DIR / "fixture-large"}
+TIERS = ("small", "large")
+RESULTS_DIR = Path(os.environ.get("BENCH_RESULTS_DIR") or BENCH_DIR / "results")
 LIB_DIR = BENCH_DIR / "lib"
 DRYRUN_DIR = LIB_DIR / "dryrun"
 LOCAL_ENV_FILE = BENCH_DIR / "bench.local.env"
 
 sys.path.insert(0, str(LIB_DIR))
+import phases  # noqa: E402
 import report  # noqa: E402
 
 TEST_CMD = ["-m", "unittest", "discover", "-s", "tests", "-t", "."]
@@ -179,6 +182,9 @@ class Config:
         self.skip_probes = bool(getattr(args, "skip_probes", False))
         self.include_no_tools = bool(getattr(args, "include_no_tools", False))
         self.skip_baseline = bool(getattr(args, "skip_baseline", False))
+        self.tier = pick(getattr(args, "tier", None), "BENCH_TIER", "small")
+        if self.tier not in TIERS + ("all",):
+            raise SystemExit("unknown tier %r (small, large, all)" % self.tier)
         tasks = getattr(args, "tasks", None) or pick(None, "BENCH_TASKS", "")
         if isinstance(tasks, str):
             tasks = [t for t in re.split(r"[,\s]+", tasks) if t]
@@ -235,6 +241,17 @@ class Task:
         return self.meta.get("class", "unknown")
 
     @property
+    def tier(self) -> str:
+        return self.meta.get("tier", "small")
+
+    @property
+    def fixture_dir(self) -> Path:
+        name = self.meta.get("fixture", "small")
+        if name not in FIXTURES:
+            raise SystemExit("%s: unknown fixture %r (known: %s)" % (self.slug, name, ", ".join(FIXTURES)))
+        return FIXTURES[name]
+
+    @property
     def expected_route(self) -> str:
         return self.meta.get("expected_route", "delegate")
 
@@ -244,6 +261,8 @@ class Task:
 
 def load_tasks(cfg: Config) -> List[Task]:
     tasks = [Task(p) for p in sorted(TASKS_DIR.iterdir()) if (p / "task.yaml").exists()]
+    if cfg.tier != "all" and not cfg.task_filter:
+        tasks = [t for t in tasks if t.tier == cfg.tier]
     if cfg.task_filter:
         wanted = set(cfg.task_filter)
         tasks = [t for t in tasks if t.slug in wanted or t.slug.split("-", 1)[0] in wanted]
@@ -255,10 +274,10 @@ def load_tasks(cfg: Config) -> List[Task]:
 
 # --------------------------------------------------------------------------- repos & evaluation
 
-def seed_repo(dest: Path) -> str:
+def seed_repo(dest: Path, fixture: Path = FIXTURE_DIR) -> str:
     if dest.exists():
         shutil.rmtree(dest)
-    shutil.copytree(FIXTURE_DIR, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(fixture, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     git(dest, "init", "-q")
     git(dest, "checkout", "-q", "-b", "main")
     git(dest, "config", "user.email", "benchmark@localhost")
@@ -711,7 +730,7 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
     raw_dir = raw_root / label
     raw_dir.mkdir(parents=True, exist_ok=True)
     repo = scratch / label
-    seed_sha = seed_repo(repo)
+    seed_sha = seed_repo(repo, task.fixture_dir)
     preamble = (BENCH_DIR / "preamble.md").read_text().strip()
     prompt = preamble + "\n\n" + task.prompt
     usage_log = raw_dir / "delegate-usage.jsonl"
@@ -751,6 +770,14 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
     except ValueError:
         data, orch_error = {}, True
     orch = claude_tokens(data)
+    # Keep the session transcript (audit trail) and split its tokens into phases.
+    config_dirs = [Path(env["CLAUDE_CONFIG_DIR"])] if env.get("CLAUDE_CONFIG_DIR") else []
+    config_dirs.append(Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude"))
+    transcript = phases.find_transcript(str(data.get("session_id") or ""), config_dirs)
+    orch_phases = None
+    if transcript:
+        shutil.copy2(transcript, raw_dir / "transcript.jsonl")
+        orch_phases = phases.phase_breakdown(raw_dir / "transcript.jsonl")
     records = read_usage_log(usage_log)
     deleg_claude = delegate_claude_tokens(records)
     other = other_delegate_tokens(records)
@@ -772,7 +799,8 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
         "mode": "compare", "task": task.slug, "task_class": task.task_class,
         "expected_route": task.expected_route, "rep": rep, "condition": condition,
         "model_under_test": model, "orchestrator_model": cfg.orchestrator_model or "cli-default",
-        "orchestrator_models_seen": orch["models"],
+        "orchestrator_models_seen": orch["models"], "orchestrator_phases": orch_phases,
+        "raw_label": label,
         "claude": {"orchestrator": orch, "delegate": deleg_claude},
         "claude_total_tokens": (orch["total"] or 0) + deleg_claude["total"],
         "delegate_tokens": other,
@@ -851,7 +879,7 @@ def scorecard_run(cfg: Config, task: Task, model: str, rep: int, scratch: Path, 
     raw_dir = raw_root / label
     raw_dir.mkdir(parents=True, exist_ok=True)
     repo = scratch / label
-    seed_repo(repo)
+    seed_repo(repo, task.fixture_dir)
     slug = "bench-" + safe_name(task.slug)
     backend, target_model = ("fake", "fake") if cfg.dry_run else parse_target(model)
     header = [
@@ -964,7 +992,7 @@ def environment_block(cfg: Config, doctor: Doctor, mode: str, tasks: List[Task])
             "fake" if cfg.dry_run else (None if cfg.allow_claude_delegate else "per target")),
         "directive_file": str(cfg.directive_file.relative_to(REPO_ROOT))
         if str(cfg.directive_file).startswith(str(REPO_ROOT)) else str(cfg.directive_file),
-        "tasks": [{"slug": t.slug, "class": t.task_class, "expected_route": t.expected_route,
+        "tasks": [{"slug": t.slug, "class": t.task_class, "expected_route": t.expected_route, "tier": t.tier,
                    "title": t.meta.get("title", "")} for t in tasks],
     }
 
@@ -987,9 +1015,9 @@ def cmd_selftest(cfg: Config) -> int:
     with tempfile.TemporaryDirectory(prefix="code-delegate-selftest-") as tmp:
         for task in load_tasks(cfg):
             base = Path(tmp) / task.slug
-            seed_repo(base / "pristine")
+            seed_repo(base / "pristine", task.fixture_dir)
             pristine = run_hidden_tests(task, base / "pristine", None)
-            seed_repo(base / "solved")
+            seed_repo(base / "solved", task.fixture_dir)
             overlay(task.solution_dir, base / "solved")
             solved = run_hidden_tests(task, base / "solved", None)
             good = (not pristine["ok"]) and solved["ok"]
@@ -1031,7 +1059,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     sub = ap.add_subparsers(dest="command", required=True)
 
     def common(p, runs=True):
-        p.add_argument("tasks", nargs="*", help="task slugs or number prefixes (default: all)")
+        p.add_argument("tasks", nargs="*", help="task slugs or number prefixes (default: all tasks of --tier)")
+        p.add_argument("--tier", choices=["small", "large", "all"],
+                       help="task tier when no tasks are named (env BENCH_TIER, default small)")
         p.add_argument("--models", help="comma-separated delegate targets: opencode models ('all' or "
                        "patterns like 'ollama/*' expand), 'claude:<model>' (e.g. claude:haiku), or "
                        "'auto' for unpinned production routing (env BENCH_MODELS)")
@@ -1061,6 +1091,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--out", help="output directory when merging several runs")
     p = sub.add_parser("selftest", help="validate tasks' hidden tests and solutions (no LLM)")
     p.add_argument("tasks", nargs="*")
+    p.add_argument("--tier", choices=["small", "large", "all"], default="all")
 
     args = ap.parse_args(argv)
     if args.command == "report":

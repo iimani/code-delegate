@@ -169,6 +169,74 @@ class ReportTests(unittest.TestCase):
             self.assertIn("Merged from", md)
 
 
+class TaskSelectionTests(unittest.TestCase):
+    def _slugs(self, tasks=(), tier="small"):
+        import argparse
+        cfg = bench.Config(argparse.Namespace(tasks=list(tasks), tier=tier))
+        return [t.slug for t in bench.load_tasks(cfg)]
+
+    def test_tiers(self):
+        small, large, every = self._slugs(), self._slugs(tier="large"), self._slugs(tier="all")
+        self.assertTrue(small and large)
+        self.assertTrue(all(not s.startswith("L") for s in small))
+        self.assertTrue(all(s.startswith("L") for s in large))
+        self.assertEqual(sorted(every), sorted(small + large))
+
+    def test_named_tasks_override_tier(self):
+        self.assertEqual(self._slugs(["01", "L1"]), ["01-single-file-boilerplate", "L1-crud-resource"])
+        with self.assertRaises(SystemExit):
+            self._slugs(["nope"])
+
+
+class BreakEvenTests(unittest.TestCase):
+    def test_fit(self):
+        # with = 100k + 0.5 * without  ->  break-even at 200k
+        pts = [(x, 100_000 + 0.5 * x) for x in (50_000, 100_000, 400_000)]
+        be = report.fit_break_even(pts)
+        self.assertAlmostEqual(be["overhead"], 100_000, places=3)
+        self.assertAlmostEqual(be["ratio"], 0.5, places=6)
+        self.assertAlmostEqual(be["break_even"], 200_000, places=3)
+        self.assertEqual(be["verdict"], "above")
+
+    def test_never_and_too_few(self):
+        self.assertEqual(report.fit_break_even([(1, 10), (2, 12), (3, 14)])["verdict"], "never")
+        self.assertIsNone(report.fit_break_even([(1, 2), (2, 3)]))
+
+
+class PhaseTests(unittest.TestCase):
+    def test_classify(self):
+        import phases
+        c = phases.classify_tool
+        self.assertEqual(c("Skill", {"skill": "code-delegate:delegate"}), "skill")
+        self.assertEqual(c("Bash", {"command": "bridge.sh --models"}), "discover")
+        self.assertEqual(c("Bash", {"command": "bridge.sh feat-x"}), "dispatch")
+        self.assertEqual(c("Bash", {"command": "cat > .local_task_x.md <<'EOF'"}), "spec")
+        self.assertEqual(c("Write", {"file_path": "/r/.local_task_x.md"}), "spec")
+        self.assertEqual(c("Edit", {"file_path": "/r/app/x.py"}), "code")
+        self.assertEqual(c("Bash", {"command": "git merge feat/x && python3 -m unittest"}), "integrate")
+        self.assertEqual(c("Bash", {"command": "python3 -m unittest discover"}), "test")
+        self.assertEqual(c("Bash", {"command": "cd .git/worktrees_agents/x && git status"}), "review")
+        self.assertEqual(c("Bash", {"command": "cat app/x.py"}), "explore")
+
+    def test_breakdown_dedupes_message_ids(self):
+        import phases
+        lines = [
+            {"type": "assistant", "message": {"id": "m1", "usage": {"input_tokens": 10, "cache_read_input_tokens": 90,
+             "output_tokens": 5}, "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}]}},
+            {"type": "assistant", "message": {"id": "m1", "usage": {"input_tokens": 10, "cache_read_input_tokens": 90,
+             "output_tokens": 7}, "content": [{"type": "tool_use", "name": "Skill", "input": {}}]}},
+            {"type": "user", "message": {}},
+            {"type": "assistant", "message": {"id": "m2", "usage": {"input_tokens": 1, "output_tokens": 1},
+             "content": [{"type": "text", "text": "done"}]}},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "t.jsonl"
+            f.write_text("\n".join(json.dumps(l) for l in lines))
+            b = phases.phase_breakdown(f)
+        self.assertEqual(b["skill"], {"calls": 1, "context": 100, "output": 7, "total": 107})
+        self.assertEqual(b["summary"]["total"], 2)
+
+
 class TargetTests(unittest.TestCase):
     def test_parse_target(self):
         self.assertEqual(bench.parse_target("auto"), (None, None))

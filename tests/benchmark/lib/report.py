@@ -6,6 +6,7 @@ Standard library only.
 from __future__ import annotations
 
 import json
+import re
 import statistics
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
@@ -70,6 +71,76 @@ def merge_runs(sources: List[Path]):
                         "%s differs: %s vs %s (%s)" % (key, env.get(key), e.get(key), src.name))
         env["merged_from"].append(src.name)
     return runs, env
+
+
+def _raw_label(r: dict) -> str:
+    model = r.get("model_under_test")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", model).strip("_") if model else ""
+    return r.get("raw_label") or "%s.%s%s.r%d" % (r["task"], r["condition"], "." + safe if safe else "", r["rep"])
+
+
+def backfill_phases(run_dirs: List[Path], runs: List[dict]) -> None:
+    """Older runs (or runs whose transcript wasn't captured) get phases from the
+    transcript Claude Code still keeps under ~/.claude/projects, if available."""
+    try:
+        import phases
+    except ImportError:
+        return
+    home = Path.home() / ".claude"
+    for r in runs:
+        if r.get("mode") != "compare" or r.get("orchestrator_phases"):
+            continue
+        for d in run_dirs:
+            raw = d / "raw" / _raw_label(r)
+            if (raw / "transcript.jsonl").exists():
+                r["orchestrator_phases"] = phases.phase_breakdown(raw / "transcript.jsonl")
+                break
+            if (raw / "orchestrator.json").exists():
+                try:
+                    sid = json.loads((raw / "orchestrator.json").read_text()).get("session_id")
+                except ValueError:
+                    sid = None
+                t = phases.find_transcript(sid or "", [home])
+                if t:
+                    r["orchestrator_phases"] = phases.phase_breakdown(t)
+                    break
+
+
+def phase_table(runs: List[dict]) -> Dict[str, object]:
+    """Mean orchestrator tokens per run for each phase, over runs with a phase breakdown."""
+    breakdowns = [r["orchestrator_phases"] for r in runs if r.get("orchestrator_phases")]
+    if not breakdowns:
+        return {}
+    totals: Dict[str, float] = {}
+    for breakdown in breakdowns:
+        for phase, v in breakdown.items():
+            totals[phase] = totals.get(phase, 0) + v["total"]
+    return {"runs": len(breakdowns), "mean_tokens": {k: v / len(breakdowns) for k, v in totals.items()}}
+
+
+def fit_break_even(points: List[tuple]) -> Optional[dict]:
+    """Least-squares fit with ≈ overhead + ratio × without over per-task medians.
+
+    break_even is the baseline size (Claude tokens without delegation) above which
+    delegating is expected to use fewer Claude tokens: overhead / (1 − ratio).
+    """
+    if len(points) < 3:
+        return None
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    sxx = sum((x - mx) ** 2 for x in xs)
+    if sxx == 0:
+        return None
+    ratio = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx
+    overhead = my - ratio * mx
+    if ratio >= 1:
+        verdict, break_even = "never" if overhead >= 0 else "always", None
+    elif overhead <= 0:
+        verdict, break_even = "always", 0.0
+    else:
+        verdict, break_even = "above", overhead / (1 - ratio)
+    return {"points": len(points), "overhead": overhead, "ratio": ratio, "break_even": break_even,
+            "verdict": verdict, "max_baseline_seen": max(xs)}
 
 
 def _passed(r) -> bool:
@@ -180,7 +251,15 @@ def build_compare(runs: List[dict], env: dict) -> dict:
                                 sum(t["with"][m]["n"] for t in tasks if m in t["with"])),
         }
     base_pass = _ratio(sum(t["without"]["passed"] for t in tasks), sum(t["without"]["n"] for t in tasks))
-    return {"tasks": tasks, "overall": overall, "without_pass_rate": base_pass}
+    for m in models:
+        points = [(t["without"]["claude_tokens_median"], t["with"][m]["claude_tokens_median"]) for t in tasks
+                  if m in t["with"] and t["without"]["claude_tokens_median"] is not None
+                  and t["with"][m]["claude_tokens_median"] is not None]
+        overall[m]["break_even"] = fit_break_even(points)
+    phase_rows = {"without": phase_table([r for r in runs if r["condition"] == "without"])}
+    for m in models:
+        phase_rows[m] = phase_table([r for r in runs if r["condition"] == "with" and r.get("model_under_test") == m])
+    return {"tasks": tasks, "overall": overall, "without_pass_rate": base_pass, "phases": phase_rows}
 
 
 def _ratio(a: int, b: int) -> Optional[float]:
@@ -292,6 +371,38 @@ def compare_markdown(data: dict, env: dict) -> str:
             "opencode model. Claude-delegate tokens are cheaper per token than the orchestrator's when "
             "the delegate is a smaller model, so compare the orchestrator/delegate split and the USD "
             "column, not only the total."]
+    out += ["", "## Break-even", "",
+            "Per target, a straight-line fit over the per-task medians: *with* ≈ overhead + ratio × *without*. "
+            "Break-even is the task size (Claude tokens without delegation) above which delegating is expected "
+            "to use fewer Claude tokens. Treat it as an estimate: it extrapolates beyond the largest task measured.", "",
+            "| Delegate target | Tasks | Fixed overhead | Ratio | Break-even (baseline tokens) | Largest baseline measured |",
+            "|---|---|---|---|---|---|"]
+    for m in models:
+        be = (data["overall"].get(m) or {}).get("break_even")
+        if not be:
+            out.append("| `%s` | <3 | n/a | n/a | n/a | n/a |" % m)
+            continue
+        verdict = {"never": "never (ratio ≥ 1)", "always": "always saves"}.get(be["verdict"], _fmt_int(be["break_even"]))
+        out.append("| `%s` | %d | %s | %.2f | %s | %s |" % (m, be["points"], _fmt_int(be["overhead"]), be["ratio"],
+                                                           verdict, _fmt_int(be["max_baseline_seen"])))
+    phase_rows = data.get("phases") or {}
+    if any(phase_rows.values()):
+        import phases as _phases
+        present = [p for p in _phases.PHASES if any(p in (row or {}).get("mean_tokens", {}) for row in phase_rows.values())]
+        out += ["", "## Where the orchestrator's tokens go", "",
+                "Mean Claude tokens per run, by phase, from the session transcripts (each API call is charged its "
+                "full context plus output). Phases: explore = reading the repo; code = editing it directly; "
+                "skill = loading code-delegate; discover = listing backends/models; spec = writing task files; "
+                "dispatch = running bridge.sh; review = inspecting delegate output; integrate = merging it; "
+                "summary = final answer.", "",
+                "| Condition | Runs | " + " | ".join(present) + " |", "|---|---|" + "---|" * len(present)]
+        for label, row in phase_rows.items():
+            if not row:
+                continue
+            cells = [_fmt_int(row["mean_tokens"].get(p)) if p in row["mean_tokens"] else "—" for p in present]
+            out.append("| %s | %d | %s |" % ("without" if label == "without" else "with `%s`" % label,
+                                             row["runs"], " | ".join(cells)))
+    out.append("")
     wp = data.get("without_pass_rate")
     out += ["", "Without delegation, hidden-test pass rate: %s. Totals are sums of per-task medians." % (
         "n/a" if wp is None else "{:.0%}".format(wp)), ""]
@@ -402,6 +513,8 @@ def write_report(run_dir: Path, sources: Optional[List[Path]] = None) -> str:
     else:
         runs, env = _load(run_dir)
     mode = env.get("mode") or (runs[0].get("mode") if runs else "compare")
+    if mode != "scorecard":
+        backfill_phases(list(sources or []) + [run_dir], runs)
     if mode == "scorecard":
         data = build_scorecard(runs, env)
         md = scorecard_markdown(data, env)

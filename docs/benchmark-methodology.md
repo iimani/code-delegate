@@ -195,8 +195,14 @@ either check is broken.
 
 ## Task set
 
-The fixture is a small stdlib-only Python project (Python 3.9+), so nothing beyond `python3` needs
-to be installed. The tasks cover code-delegate's own routing buckets.
+Tasks come in two tiers, selected with `--tier small|large|all` (default `small`) or by naming
+tasks. Both fixtures are stdlib-only Python (3.9+), so nothing beyond `python3` needs to be
+installed.
+
+### Small tier
+
+`fixture/` is a tiny project (a few modules, under 100 lines). Tasks finish in a handful of
+orchestrator turns, so this tier mostly measures delegation's **fixed overhead**.
 
 | # | Task | Class | Expected route | Hidden tests check |
 |---|---|---|---|---|
@@ -207,9 +213,57 @@ to be installed. The tasks cover code-delegate's own routing buckets.
 | 05 | Test suite for `slugify` | test-generation | delegate | mutation score ≥ 4/5, implementation untouched |
 | 06 | Rename across 3 files | refactor | delegate | new name works, old name gone everywhere, behaviour unchanged |
 
+### Large tier
+
+`fixture-large/` is a layered order/inventory service (`shop`: util → models → sqlite3
+repositories → services → framework-free API handlers → reports → CLI; about 1,300 lines plus 370
+lines of visible tests). Services use a `(value, error)` tuple convention. Each task takes roughly
+10× the work of a small one: reading many files, writing hundreds of lines, or a debugging loop.
+This tier measures where delegation starts to **save** tokens.
+
+| # | Task | Class | Expected route | Hidden tests check |
+|---|---|---|---|---|
+| L1 | Suppliers resource across all layers (model, table, repository, service, API, CLI, tests) | boilerplate | delegate | service rules, API statuses and JSON, CLI output, no clash with customers |
+| L2 | Test suites for `money`, `dates`, `pricing` | test-generation | delegate | mutation score ≥ 14/17 across the three modules, modules untouched |
+| L3 | Migrate `(value, error)` tuples to exceptions everywhere (~15 files) | refactor | delegate (larger model) | exception hierarchy, tuple API removed, no tuple unpacking of service results left, API/CLI behaviour unchanged, rollback kept |
+| L4 | CSV/JSON export for every report via CLI and API | feature | delegate | exact CSV/JSON output, formats, endpoint statuses, CLI flag |
+| L5 | Bug report with only a symptom ("sales report misses the last day") | bugfix | **implement directly** | root cause fixed in the repository layer, boundaries at 00:00:00 and 23:59:59 |
+| L6 | Three independent features in one request (search, email normalization, cancellation) | multi-feature | delegate (split) | each feature, including stock release on cancel |
+
+L5 is the large-tier control: the work is investigation, and the fix is one line.
+
 Task 03 is a **control**. code-delegate's rules say not to delegate it, so the *with* condition
 should look like the baseline plus a little classification overhead. A large saving there, or
 frequent delegation, points to a routing problem rather than a win.
+
+## Break-even estimate
+
+The small tier alone shows overhead; the large tier shows the other end. Across all tasks in a
+run, the report fits a straight line through the per-task medians for each target:
+
+```
+Claude tokens with ≈ overhead + ratio × Claude tokens without
+```
+
+- **overhead**: the fixed Claude cost of delegating a task at all (skill, planning, dispatch,
+  review, merge);
+- **ratio**: the share of the direct work that still lands on Claude;
+- **break-even** = overhead / (1 − ratio): the task size, in baseline Claude tokens, above which
+  delegating is expected to use fewer Claude tokens. Reported as "never" when ratio ≥ 1.
+
+It is a coarse, extrapolated estimate: at least 3 tasks are needed, and it is only trustworthy
+within the range of baseline sizes actually measured (shown next to it).
+
+## Where the orchestrator's tokens go
+
+Each orchestrator session's Claude Code transcript is copied to `raw/<run>/transcript.jsonl`.
+Every API call in it is assigned one phase from the tools it used: explore, code, test, skill,
+discover (`bridge.sh --models` etc.), spec (task files), dispatch (`bridge.sh <slug>`), review
+(inspecting worktrees), integrate (merging delegate work), subagent, summary. Each call is
+charged its full context plus output. The report shows the mean tokens per phase for each
+condition, which shows which parts of the delegation flow cost the most. For runs recorded
+before transcripts were captured, `report` reads them from `~/.claude/projects` if they are still
+there.
 
 ## What each run records
 
@@ -220,6 +274,7 @@ stderr, bridge logs, usage log, diff, hidden-test output, prompt, command) in
 | Field | Meaning |
 |---|---|
 | `claude.orchestrator` | input, output, cache_create, cache_read, total, cost_usd, turns, duration_ms, models |
+| `orchestrator_phases` | per phase: calls, context, output, total tokens (from the transcript) |
 | `claude.delegate` | the same totals for delegates that ran on the claude backend |
 | `claude_total_tokens` | headline number for this run |
 | `delegate_tokens` | non-Claude delegate tokens: input, output, reasoning, cache, tool_calls |
@@ -276,9 +331,8 @@ It also records whether the delegate committed its work.
   reads. The totals include both; the separate columns show how the mix changes.
 - **Directive sensitivity.** Results depend on the delegation directive and skill wording. The
   directive file is recorded in the report, and changing it should be treated as a new experiment.
-- **Fixture scale.** The fixture is tiny. Orchestrator reading costs grow with the size of a real
-  codebase, which should make delegation relatively more attractive than it appears here; this is
-  not measured.
+- **Fixture scale.** Even the large fixture is small next to a real product codebase. Reading
+  costs grow with codebase size, so real break-even points may be lower than measured here.
 - **Delegate model and serving.** Quantization, context length, server load and the endpoint's
   tool-calling support all change delegate quality. Record them alongside the results.
 - **Non-interactive departure.** Auto-approval removes a human turn that real sessions have.
@@ -332,11 +386,12 @@ so `6 tasks × reps × (1 + models)` sessions. Start with `--reps 1` and one or 
 
 ## Adding a task
 
-Create `tests/benchmark/tasks/<NN-slug>/` with:
+Create `tests/benchmark/tasks/<NN-slug>/` (large tasks use an `L` prefix) with:
 
 - `prompt.md`: exactly what the model is told. Specify every behaviour the hidden tests check.
 - `task.yaml`: flat `key: value` with `title`, `class`, `expected_route`
-  (`delegate` | `delegate-larger` | `direct`) and `timeout` (seconds).
+  (`delegate` | `delegate-larger` | `direct`), `timeout` (seconds), and optionally `tier`
+  (`small` default, or `large`) and `fixture` (`small` default, or `large`).
 - `hidden/test_hidden_*.py`: `unittest` tests. Extra assets in `hidden/` are available at
   `tests/_hidden/` when the tests run.
 - `solution/`: a reference solution overlaid on the fixture. It is used by `selftest` and by the

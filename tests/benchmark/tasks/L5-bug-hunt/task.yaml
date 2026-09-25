@@ -1,0 +1,6 @@
+title: Find and fix why sales reports miss orders
+class: bugfix
+expected_route: direct
+tier: large
+fixture: large
+timeout: 3600

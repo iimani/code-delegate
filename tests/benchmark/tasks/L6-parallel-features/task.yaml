@@ -1,0 +1,6 @@
+title: Three independent features in one request
+class: multi-feature
+expected_route: delegate
+tier: large
+fixture: large
+timeout: 3600

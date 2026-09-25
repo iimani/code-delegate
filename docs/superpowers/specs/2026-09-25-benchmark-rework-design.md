@@ -293,3 +293,17 @@ differs from the text above.
   `tests/benchmark/directive.md`, appended via `--append-system-prompt-file`.
 - **Wrapper location**: `lib/usage_wrap.py` at the repo root. Runners take the wrapped path only
   when `CODE_DELEGATE_USAGE_LOG` is set and otherwise `exec` the CLI exactly as before.
+
+## Addendum: delegate targets and large tier (2026-09-25)
+
+- **Delegate targets**: `claude:<model>` and `auto` (nothing pinned, which scores the full
+  production flow) alongside opencode models. `compare --skip-baseline` plus a multi-directory
+  `report --out` reuse a baseline.
+- **Large tier**: `fixture-large/` (layered `shop` service) and tasks L1–L6. They are selected
+  with `--tier`; each task picks its fixture via `task.yaml` `fixture:`.
+- **Analysis**: break-even line fit per target, and a per-phase orchestrator token breakdown
+  from Claude Code transcripts (copied to `raw/`, backfilled from `~/.claude/projects` for older
+  runs).
+- **Motivation**: the first Ollama run (small tier) showed +124–127% Claude tokens with
+  delegation. Every management step costs roughly one full-context API call (~30k tokens), which
+  outweighs the tiny tasks' direct work. The large tier is there to find the break-even point.

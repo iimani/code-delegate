@@ -17,6 +17,7 @@ cd tests/benchmark
 cp bench.env.example bench.local.env   # set BENCH_MODELS (cheapest first)
 ./bench.sh doctor                       # preflight: tools, Claude login + isolation, models
 ./bench.sh compare --reps 1 01 04       # small first run: two tasks, one rep
+./bench.sh compare --tier large --reps 2 # large tasks: where delegation should start to pay off
 ./bench.sh compare                      # full: all tasks, BENCH_REPS reps
 ./bench.sh scorecard                    # model × task-class pass-rate matrix
 ```
@@ -42,9 +43,11 @@ bench.sh              entry point (runs lib/bench.py)
 bench.env.example     configuration keys; copy to bench.local.env
 preamble.md           prepended to every task prompt (both conditions)
 directive.md          delegation directive for the with-delegation condition
-fixture/              stdlib Python project every run starts from
+fixture/              tiny stdlib Python project (small tier)
+fixture-large/        layered order/inventory service (large tier)
 tasks/<NN-slug>/      prompt.md, task.yaml, hidden/ tests, solution/
 lib/bench.py          harness (doctor, compare, scorecard, selftest)
-lib/report.py         aggregation and summary.md
+lib/report.py         aggregation, break-even fit, summary.md
+lib/phases.py         splits orchestrator transcripts into phases
 lib/dryrun/           fake orchestrator + fake backend for --dry-run
 ```
