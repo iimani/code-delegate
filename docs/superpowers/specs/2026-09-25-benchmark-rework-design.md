@@ -146,6 +146,10 @@ and results aren't comparable across machines. Two isolation modes, chosen by do
    `ANTHROPIC_API_KEY`, or Bedrock/Vertex env vars. Verified 2026-09-25: an empty config dir
    with no env credential fails with `terminal_reason: api_error`.
 
+Verified 2026-09-25 (claude 2.1.266, 1-turn probe from an empty git repo): default sources →
+model reports seeing the global `CLAUDE.md` directive, 37,980 context tokens;
+`--setting-sources project` → not seen, 25,725 tokens. So `cli-login` is the default.
+
 Doctor runs a **leak probe** in the *without* configuration: it asks the model whether its
 instructions mention code-delegate / delegation directives. If `cli-login` leaks the user's
 global `CLAUDE.md`, doctor falls back to `isolated-config`, or aborts with instructions if no
