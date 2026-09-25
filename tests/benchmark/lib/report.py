@@ -43,6 +43,35 @@ def _load(run_dir: Path):
     return runs, env
 
 
+def merge_runs(sources: List[Path]):
+    """Combine several result dirs of the same mode (e.g. a baseline run and a
+    --skip-baseline run with more delegate targets) into one data set."""
+    runs: List[dict] = []
+    env: dict = {}
+    for src in sources:
+        r, e = _load(src)
+        runs += r
+        if not env:
+            env = json.loads(json.dumps(e))
+            env["models"] = list(e.get("models", []))
+            env["merged_from"] = []
+        else:
+            if e.get("mode") != env.get("mode"):
+                raise SystemExit("cannot merge %s (mode %s) with mode %s" % (src, e.get("mode"), env.get("mode")))
+            env["models"] += [m for m in e.get("models", []) if m not in env["models"]]
+            env["reps"] = max(env.get("reps") or 0, e.get("reps") or 0)
+            for key in ("model_notes", "excluded_models"):
+                env.setdefault(key, {}).update(e.get(key) or {})
+            known = {t["slug"] for t in env.get("tasks", [])}
+            env.setdefault("tasks", []).extend(t for t in e.get("tasks", []) if t["slug"] not in known)
+            for key in ("orchestrator_model", "isolation", "code_delegate_sha"):
+                if e.get(key) != env.get(key):
+                    env.setdefault("merge_warnings", []).append(
+                        "%s differs: %s vs %s (%s)" % (key, env.get(key), e.get(key), src.name))
+        env["merged_from"].append(src.name)
+    return runs, env
+
+
 def _passed(r) -> bool:
     return bool((r.get("hidden_tests") or {}).get("ok"))
 
@@ -66,6 +95,7 @@ def cell_stats(runs: List[dict]) -> Dict[str, object]:
             (o.get("input") or 0) + (o.get("output") or 0) + (o.get("cache_create") or 0) for o in orch),
         "cache_read_median": _median(o.get("cache_read") for o in orch),
         "output_median": _median(o.get("output") for o in orch),
+        "orchestrator_tokens_median": _median(o.get("total") for o in orch),
         "delegate_claude_tokens_median": _median(
             ((r.get("claude") or {}).get("delegate") or {}).get("total") for r in scored),
         "delegate_tokens_median": _median(
@@ -74,9 +104,13 @@ def cell_stats(runs: List[dict]) -> Dict[str, object]:
         "wall_s_median": _median((r.get("wall_ms") or 0) / 1000 for r in scored),
         "turns_median": _median(o.get("turns") for o in orch),
         "cost_usd_median": _median(o.get("cost_usd") for o in orch),
+        "delegate_cost_usd_median": _median(
+            ((r.get("claude") or {}).get("delegate") or {}).get("cost_usd") for r in scored),
         "delegated": sum(1 for r in scored if r.get("delegated")),
         "bridge_attempts_median": _median(r.get("bridge_attempts") for r in scored),
         "routed_elsewhere": sum(1 for r in scored if r.get("routed_elsewhere")),
+        "routes": _count("%s/%s" % (d.get("backend"), d.get("model") or "default")
+                         for r in scored for d in (r.get("delegations") or [])),
         "exit_reasons": reasons,
     }
 
@@ -114,12 +148,21 @@ def build_compare(runs: List[dict], env: dict) -> dict:
         base = sum_with = 0.0
         base_ok = with_ok = 0.0
         counted = counted_ok = 0
+        orch_with = deleg_with = 0.0
+        usd_base = usd_with = 0.0
+        usd_counted = 0
         for t in tasks:
             w, wo = t["with"].get(m) or {}, t["without"]
             if w.get("claude_tokens_median") is not None and wo.get("claude_tokens_median") is not None:
                 base += wo["claude_tokens_median"]
                 sum_with += w["claude_tokens_median"]
+                orch_with += w.get("orchestrator_tokens_median") or 0
+                deleg_with += w.get("delegate_claude_tokens_median") or 0
                 counted += 1
+                if w.get("cost_usd_median") is not None and wo.get("cost_usd_median") is not None:
+                    usd_base += wo["cost_usd_median"]
+                    usd_with += w["cost_usd_median"] + (w.get("delegate_cost_usd_median") or 0)
+                    usd_counted += 1
             if (w.get("claude_tokens_median_passing") is not None
                     and wo.get("claude_tokens_median_passing") is not None):
                 base_ok += wo["claude_tokens_median_passing"]
@@ -127,6 +170,8 @@ def build_compare(runs: List[dict], env: dict) -> dict:
                 counted_ok += 1
         overall[m] = {
             "tasks_counted": counted, "without_tokens": base, "with_tokens": sum_with,
+            "with_orchestrator_tokens": orch_with, "with_delegate_claude_tokens": deleg_with,
+            "usd_without": usd_base if usd_counted else None, "usd_with": usd_with if usd_counted else None,
             "delta_pct": (sum_with - base) / base if base else None,
             "tasks_counted_correct": counted_ok, "without_tokens_correct": base_ok,
             "with_tokens_correct": with_ok,
@@ -161,6 +206,7 @@ def build_scorecard(runs: List[dict], env: dict) -> dict:
                 "n": len(cell), "passed": passed,
                 "wall_s_median": _median((r.get("wall_ms") or 0) / 1000 for r in cell),
                 "delegate_tokens_median": _median(
+                    r.get("delegate_io_tokens") if r.get("delegate_io_tokens") is not None else
                     ((r.get("delegate_tokens") or {}).get("input") or 0)
                     + ((r.get("delegate_tokens") or {}).get("output") or 0) for r in cell),
                 "no_tool_use": sum(1 for r in cell if r.get("exit_reason") == "no_tool_use"),
@@ -205,6 +251,10 @@ def _env_md(env: dict) -> List[str]:
     ]
     if env.get("dry_run"):
         lines.append("| **DRY RUN** | fake orchestrator and backend — numbers are synthetic |")
+    if env.get("merged_from"):
+        lines.append("| Merged from | %s |" % ", ".join("`%s`" % m for m in env["merged_from"]))
+    for w in env.get("merge_warnings") or []:
+        lines.append("| **Merge warning** | %s |" % w)
     excluded = env.get("excluded_models") or {}
     for m, note in (env.get("model_notes") or {}).items():
         label = "Excluded" if m in excluded else "Note"
@@ -224,15 +274,24 @@ def compare_markdown(data: dict, env: dict) -> str:
             "Negative Δ means delegation saved Claude tokens. See docs/benchmark-methodology.md.", ""]
 
     out += ["## Headline", "",
-            "| Model under test | Tasks | Claude tokens without | with | Δ | Δ (correct runs only) | "
-            "Hidden-test pass (with) |", "|---|---|---|---|---|---|---|"]
+            "| Delegate target | Tasks | Claude tokens without | with | of which orchestrator / Claude delegate "
+            "| Δ | Δ (correct runs only) | Hidden-test pass (with) | USD list without → with |",
+            "|---|---|---|---|---|---|---|---|---|"]
     for m in models:
         o = data["overall"].get(m) or {}
-        out.append("| `%s` | %d | %s | %s | %s | %s (%d tasks) | %s |" % (
+        usd = "n/a" if o.get("usd_without") is None else "%s → %s" % (
+            _fmt_usd(o["usd_without"]), _fmt_usd(o["usd_with"]))
+        out.append("| `%s` | %d | %s | %s | %s / %s | %s | %s (%d tasks) | %s | %s |" % (
             m, o.get("tasks_counted", 0), _fmt_int(o.get("without_tokens")), _fmt_int(o.get("with_tokens")),
+            _fmt_int(o.get("with_orchestrator_tokens")), _fmt_int(o.get("with_delegate_claude_tokens")),
             _fmt_pct(o.get("delta_pct")), _fmt_pct(o.get("correct_delta_pct")),
             o.get("tasks_counted_correct", 0),
-            "n/a" if o.get("pass_rate") is None else "{:.0%}".format(o["pass_rate"])))
+            "n/a" if o.get("pass_rate") is None else "{:.0%}".format(o["pass_rate"]), usd))
+    out += ["", "Targets: `auto` = nothing pinned, the orchestrator routes each task itself (production "
+            "behaviour); `claude:<model>` = delegates pinned to that Claude model; anything else = that "
+            "opencode model. Claude-delegate tokens are cheaper per token than the orchestrator's when "
+            "the delegate is a smaller model, so compare the orchestrator/delegate split and the USD "
+            "column, not only the total."]
     wp = data.get("without_pass_rate")
     out += ["", "Without delegation, hidden-test pass rate: %s. Totals are sums of per-task medians." % (
         "n/a" if wp is None else "{:.0%}".format(wp)), ""]
@@ -241,9 +300,10 @@ def compare_markdown(data: dict, env: dict) -> str:
     for t in data["tasks"]:
         wo = t["without"]
         out += ["### %s  (`%s`, expected route: %s)" % (t["task"], t["class"], t["expected_route"]), "",
-                "| Condition | Pass | Claude tokens median (min–max) | Δ | Δ correct | Non-cached | "
-                "Cache read | Output | Delegate tokens | Delegated | Bridge attempts | Wall s | Exit reasons |",
-                "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+                "| Condition | Pass | Claude tokens median (min–max) | Δ | Δ correct | Orchestrator | "
+                "Claude delegate | Non-cached | Cache read | Output | Non-Claude delegate tokens | Delegated | "
+                "Bridge attempts | Wall s | Exit reasons |",
+                "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         out.append(_task_row("without", wo, None))
         for m in models:
             if m in t["with"]:
@@ -260,6 +320,8 @@ def compare_markdown(data: dict, env: dict) -> str:
             txt = "%d/%d delegated" % (w.get("delegated", 0), w.get("n", 0))
             if w.get("routed_elsewhere"):
                 txt += ", %d routed elsewhere" % w["routed_elsewhere"]
+            if w.get("routes"):
+                txt += " → " + ", ".join("%s×%d" % (k, v) for k, v in sorted(w["routes"].items()))
             cells.append(txt)
         out.append("| %s | %s | %s |" % (t["task"], t["expected_route"], " | ".join(cells)))
     out += ["", "## Appendix: orchestrator USD (list price as reported by the CLI)", "",
@@ -280,10 +342,12 @@ def _task_row(label: str, s: dict, deltas: Optional[dict]) -> str:
     rng = "%s (%s–%s)" % (_fmt_int(s["claude_tokens_median"]), _fmt_int(s["claude_tokens_min"]),
                           _fmt_int(s["claude_tokens_max"]))
     reasons = ", ".join("%s×%d" % (k, v) for k, v in sorted(s["exit_reasons"].items()))
-    return "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+    return "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
         label, _fmt_rate(s["passed"], s["n"]), rng,
         _fmt_pct(deltas.get("delta_pct")) if deltas else "—",
         _fmt_pct(deltas.get("correct_delta_pct")) if deltas else "—",
+        _fmt_int(s["orchestrator_tokens_median"]),
+        _fmt_int(s["delegate_claude_tokens_median"]) if deltas else "—",
         _fmt_int(s["claude_noncached_median"]), _fmt_int(s["cache_read_median"]),
         _fmt_int(s["output_median"]),
         _fmt_int(s["delegate_tokens_median"]) if deltas else "—",
@@ -308,7 +372,7 @@ def scorecard_markdown(data: dict, env: dict) -> str:
         cells = [_fmt_rate(data["matrix"][m][c]["passed"], data["matrix"][m][c]["n"]) for c in classes]
         ntu = sum(data["matrix"][m][c]["no_tool_use"] for c in classes)
         out.append("| `%s` | %s | %d |" % (m, " | ".join(cells), ntu))
-    out += ["", "## Median wall time (s) / delegate tokens", "",
+    out += ["", "## Median wall time (s) / delegate input+output tokens", "",
             "| Model | " + " | ".join(classes) + " |", "|---|" + "---|" * len(classes)]
     for m in models:
         cells = []
@@ -327,8 +391,16 @@ def scorecard_markdown(data: dict, env: dict) -> str:
     return "\n".join(out + [""] + _env_md(env))
 
 
-def write_report(run_dir: Path) -> str:
-    runs, env = _load(run_dir)
+def write_report(run_dir: Path, sources: Optional[List[Path]] = None) -> str:
+    if sources:
+        runs, env = merge_runs(sources)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        with (run_dir / "runs.jsonl").open("w") as f:
+            for r in runs:
+                f.write(json.dumps(r) + "\n")
+        (run_dir / "env.json").write_text(json.dumps(env, indent=1))
+    else:
+        runs, env = _load(run_dir)
     mode = env.get("mode") or (runs[0].get("mode") if runs else "compare")
     if mode == "scorecard":
         data = build_scorecard(runs, env)

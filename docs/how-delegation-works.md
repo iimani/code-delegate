@@ -236,6 +236,7 @@ to check it.
 |---|---|---|
 | `<BACKEND>_DELEGATE_MODEL` | bridge | Default model for that backend when no `Model:` header |
 | `CODE_DELEGATE_BACKEND` | bridge | Backend for tasks whose `Backend:` is empty or `auto` |
+| `CLAUDE_DELEGATE_SETTING_SOURCES` | claude runner | If set, passed as `--setting-sources` to the delegate `claude` process (the benchmark uses `project` to keep personal settings out). Unset in normal use |
 | `CODE_DELEGATE_USAGE_LOG` | backend runners | If set, the runner streams the CLI's JSON events through `lib/usage_wrap.py`, keeps `agent.log` readable, and appends one JSON line of token usage per run to this file. Unset in normal use, which leaves runner behaviour unchanged. |
 
 ## Hooks

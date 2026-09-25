@@ -18,6 +18,12 @@ CMD=(claude --dangerously-skip-permissions --print --verbose)
 if [ -n "$MODEL" ]; then
     CMD+=(--model "$MODEL")
 fi
+# Opt-in (tests/benchmark sets it to "project"): limit which settings the
+# delegate loads, so it doesn't pick up the operator's personal CLAUDE.md,
+# plugins or hooks. Unset in normal use.
+if [ -n "${CLAUDE_DELEGATE_SETTING_SOURCES:-}" ]; then
+    CMD+=(--setting-sources "$CLAUDE_DELEGATE_SETTING_SOURCES")
+fi
 
 cd "$WORKTREE_PATH"
 

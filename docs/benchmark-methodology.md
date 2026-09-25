@@ -31,8 +31,21 @@ box, LM Studio, or a company's self-hosted platform configured as an opencode pr
 For every task and repetition the harness runs:
 
 - **without**: one Claude Code session that implements the task itself.
-- **with**: one Claude Code session per model under test, with code-delegate loaded and
-  delegation pinned to that model.
+- **with**: one Claude Code session per **delegate target**, with code-delegate loaded.
+
+### Delegate targets
+
+`BENCH_MODELS` / `--models` takes a comma-separated list of targets:
+
+| Target | Example | What the *with* run does |
+|---|---|---|
+| opencode model | `ollama/qwen3.6:27b`, `ollama/*`, `all` | delegates pinned to that opencode model |
+| Claude model | `claude:haiku`, `claude:sonnet` | delegates pinned to the claude backend with that model |
+| `auto` | `auto` | **nothing pinned**: the orchestrator classifies each task and picks backend and model itself, exactly as in production. This scores the complete delegation flow |
+
+Pinned targets measure what a given delegate is worth. `auto` measures what a user actually gets,
+including the orchestrator's routing decisions. The routing table shows where `auto` sent each
+task.
 
 Each run is a fresh `claude --print --output-format json --dangerously-skip-permissions` process in
 a fresh scratch git repository seeded from `tests/benchmark/fixture/`. Runs execute **one at a
@@ -58,8 +71,10 @@ Only the *with* condition gets:
 - the delegation directive [`directive.md`](../tests/benchmark/directive.md), appended to the
   system prompt. It is the snippet the README tells users to add to their `CLAUDE.md`, plus one
   paragraph for non-interactive use (see below). `BENCH_DIRECTIVE_FILE` swaps it for your own;
-- `OPENCODE_DELEGATE_MODEL=<model under test>`;
-- `CODE_DELEGATE_BACKEND=opencode` (backend pinning);
+- for pinned targets, `CODE_DELEGATE_BACKEND=<backend>` and `<BACKEND>_DELEGATE_MODEL=<model>`
+  (backend pinning); nothing for `auto`;
+- `CLAUDE_DELEGATE_SETTING_SOURCES=project`, so a delegate that runs on the claude backend gets
+  the same isolation from personal settings as the orchestrator;
 - `CODE_DELEGATE_USAGE_LOG=<file>` (delegate token accounting).
 
 ### Non-interactive approval
@@ -102,15 +117,15 @@ keeps them, because it spends no Claude tokens.
 
 ### Backend pinning
 
-Left to itself, the orchestrator could send a task to the **claude** backend, either by writing
-`Backend: claude` or because auto-routing prefers claude for tasks touching more than 3 files. The
-run would then silently measure a different setup. The harness therefore sets
-`CODE_DELEGATE_BACKEND=opencode`, which applies whenever a task file leaves `Backend:` empty or
-`auto`.
+Left to itself, the orchestrator could send a task somewhere other than the target under test,
+either by writing an explicit `Backend:` header or because auto-routing prefers claude for tasks
+touching more than 3 files. The run would then silently measure a different setup. For pinned
+targets the harness therefore sets `CODE_DELEGATE_BACKEND` and the backend's model variable, which
+apply whenever a task file leaves `Backend:` empty or `auto` (and `Model:` empty).
 
 An explicit `Backend:` header written by the orchestrator still wins. Such a run is flagged
 `routed_elsewhere`, and its Claude-side delegate tokens are **still counted** (see below).
-`--allow-claude-delegate` turns pinning off to measure unconstrained production routing.
+The `auto` target turns pinning off to measure unconstrained production routing.
 
 ## What "Claude tokens" includes
 
@@ -135,6 +150,14 @@ tokens              = input + output + cache writes + cache reads
   Their price is much lower, though, so the report also shows them in their own column next to a
   **non-cached** column (input + output + cache writes). A delegation that mostly shifts cache
   reads is visible there.
+
+### Claude delegates: mixed prices
+
+When the delegate is itself a Claude model, the total mixes tokens of different prices: a Haiku
+token costs a fraction of an Opus orchestrator token. The headline therefore splits the *with*
+total into **orchestrator** and **Claude delegate** tokens and adds list-price USD next to it. For
+Claude targets, judge on that split and on USD; for opencode targets the delegate side is zero and
+the total is the whole story.
 
 ### Why tokens, not dollars
 
@@ -263,6 +286,19 @@ It also records whether the delegate committed its work.
 - **Self-reported probes.** The leak and plugin probes rely on the model's own yes/no answer. They
   catch gross misconfiguration, not subtle leaks; the recorded context-token count is a second
   signal.
+
+## Reusing a baseline
+
+The *without* runs don't depend on the delegate target, so a later run with more targets can reuse
+an earlier baseline:
+
+```bash
+./bench.sh compare --skip-baseline --models claude:haiku,claude:sonnet,auto
+./bench.sh report results/<baseline-run> results/<new-run> --out results/combined
+```
+
+`report` merges the runs and warns in the environment block if the orchestrator model, isolation
+mode or code-delegate version differ between them. Only merge runs made under the same conditions.
 
 ## Running it
 

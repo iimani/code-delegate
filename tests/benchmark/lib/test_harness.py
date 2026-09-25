@@ -151,6 +151,32 @@ class ReportTests(unittest.TestCase):
         data = report.build_scorecard(runs, env)
         self.assertEqual(data["suggested_routing"]["c"], "big")
 
+    def test_merge_runs_combines_baseline_and_targets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b, out = Path(tmp, "a"), Path(tmp, "b"), Path(tmp, "out")
+            task = {"slug": "t", "class": "c", "expected_route": "delegate"}
+            for d, models, runs in ((a, ["m1"], [_run("t", "without", None, 1, 100, True),
+                                                  _run("t", "with", "m1", 1, 50, True, True)]),
+                                    (b, ["claude:haiku"], [_run("t", "with", "claude:haiku", 1, 70, True, True)])):
+                d.mkdir()
+                (d / "env.json").write_text(json.dumps({"mode": "compare", "models": models, "reps": 1,
+                                                        "tasks": [task]}))
+                (d / "runs.jsonl").write_text("\n".join(json.dumps(r) for r in runs) + "\n")
+            md = report.write_report(out, sources=[a, b])
+            data = json.loads((out / "summary.json").read_text())
+            self.assertEqual(data["env"]["models"], ["m1", "claude:haiku"])
+            self.assertAlmostEqual(data["summary"]["overall"]["claude:haiku"]["delta_pct"], -0.3)
+            self.assertIn("Merged from", md)
+
+
+class TargetTests(unittest.TestCase):
+    def test_parse_target(self):
+        self.assertEqual(bench.parse_target("auto"), (None, None))
+        self.assertEqual(bench.parse_target("claude:haiku"), ("claude", "haiku"))
+        self.assertEqual(bench.parse_target("codex:gpt-x"), ("codex", "gpt-x"))
+        self.assertEqual(bench.parse_target("ollama/qwen3.6:27b"), ("opencode", "ollama/qwen3.6:27b"))
+        self.assertEqual(bench.parse_target("lmstudio/qwen/qwen3.6-27b"), ("opencode", "lmstudio/qwen/qwen3.6-27b"))
+
 
 if __name__ == "__main__":
     unittest.main()

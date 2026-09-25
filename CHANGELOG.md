@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Reworked `tests/benchmark/` (`bench.sh doctor|compare|scorecard|report|selftest`). The headline metric is the Claude tokens (orchestrator plus any Claude delegate) spent on the same task with vs. without delegation. Correctness is judged by hidden tests the model never sees, and a "correct runs only" saving is reported. The harness is portable: models come from `opencode models`, and per-machine settings go in `bench.local.env`. Auth and context isolation (`--setting-sources project`, or an isolated config dir) are checked by probes. Six stdlib-Python tasks cover every routing bucket, including a mutation-scored test-writing task. A dry-run mode with a fake orchestrator and backend runs in CI.
 - `docs/benchmark-methodology.md` and `docs/how-delegation-works.md`
+- Benchmark delegate targets beyond opencode: `claude:<model>` pins delegates to a Claude model, and `auto` leaves routing to the orchestrator to score the complete delegation flow. `compare --skip-baseline` plus multi-directory `report --out` reuse an earlier baseline
+- `CLAUDE_DELEGATE_SETTING_SOURCES` env var: passed as `--setting-sources` to delegate `claude` processes (opt-in)
 - `CODE_DELEGATE_BACKEND` env var: pins the backend for tasks whose `Backend:` is empty or `auto` (an explicit header still wins)
 - `CODE_DELEGATE_USAGE_LOG` env var: when set, backend runners record per-run token usage (claude via `stream-json`, opencode via `--format json`) through `lib/usage_wrap.py`; unset means unchanged behaviour
 

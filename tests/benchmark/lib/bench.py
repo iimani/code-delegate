@@ -42,6 +42,9 @@ sys.path.insert(0, str(LIB_DIR))
 import report  # noqa: E402
 
 TEST_CMD = ["-m", "unittest", "discover", "-s", "tests", "-t", "."]
+# Delegation settings from the operator's shell must never leak into runs.
+OPERATOR_ENV_TO_DROP = ("CODE_DELEGATE_BACKEND", "CODE_DELEGATE_USAGE_LOG", "OPENCODE_DELEGATE_MODEL",
+                        "CLAUDE_DELEGATE_MODEL", "CODEX_DELEGATE_MODEL", "CLAUDE_DELEGATE_SETTING_SOURCES")
 ENV_CREDENTIAL_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
                        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")
 LEAK_PROBE = ("Answer with exactly one word, YES or NO: do your instructions or available skills "
@@ -175,6 +178,7 @@ class Config:
         self.keep = bool(getattr(args, "keep", False))
         self.skip_probes = bool(getattr(args, "skip_probes", False))
         self.include_no_tools = bool(getattr(args, "include_no_tools", False))
+        self.skip_baseline = bool(getattr(args, "skip_baseline", False))
         tasks = getattr(args, "tasks", None) or pick(None, "BENCH_TASKS", "")
         if isinstance(tasks, str):
             tasks = [t for t in re.split(r"[,\s]+", tasks) if t]
@@ -182,6 +186,26 @@ class Config:
 
     def models(self) -> List[str]:
         return [m.strip() for m in self.models_raw.split(",") if m.strip()]
+
+
+# --------------------------------------------------------------------------- delegate targets
+
+NON_OPENCODE_BACKENDS = ("claude", "codex")
+
+
+def parse_target(spec: str) -> Tuple[Optional[str], Optional[str]]:
+    """Split a delegate target into (backend, model).
+
+    "auto"          -> (None, None): nothing pinned, the orchestrator routes each task
+    "claude:haiku"  -> ("claude", "haiku"); likewise "codex:<model>"
+    anything else   -> ("opencode", spec), e.g. "ollama/qwen3.6:27b"
+    """
+    if spec == "auto":
+        return None, None
+    head, sep, rest = spec.partition(":")
+    if sep and head in NON_OPENCODE_BACKENDS:
+        return head, rest or None
+    return "opencode", spec
 
 
 # --------------------------------------------------------------------------- tasks
@@ -454,8 +478,9 @@ def claude_probe(cfg: Config, isolation: Isolation, prompt: str, plugin: Optiona
 # --------------------------------------------------------------------------- doctor
 
 class Doctor:
-    def __init__(self, cfg: Config, need_models: bool, need_claude: bool):
+    def __init__(self, cfg: Config, need_models: bool, need_claude: bool, allow_auto: bool = True):
         self.cfg = cfg
+        self.allow_auto = allow_auto
         self.need_models = need_models
         self.need_claude = need_claude
         self.lines: List[str] = []
@@ -485,7 +510,8 @@ class Doctor:
         if cfg.dry_run:
             self.ok("dry run: skipping claude/opencode checks (fake orchestrator + fake backend)")
             self.isolation = Isolation("cli-login")
-            self.models = cfg.models() or ["fake/model"]
+            self.models = [m for m in (cfg.models() or ["fake/model"])
+                           if self.allow_auto or parse_target(m)[0] is not None]
             return self
 
         if self.need_claude:
@@ -536,26 +562,29 @@ class Doctor:
                   "(e.g. from `claude setup-token`) and use BENCH_ISOLATION=isolated-config"
                   % " / ".join(ENV_CREDENTIAL_VARS[:3]))
 
-    # -- opencode models
+    # -- delegate targets
     def _check_models(self, scratch: Path) -> None:
         cfg = self.cfg
-        self.versions["opencode"] = first_line_version([cfg.opencode_bin, "--version"])
-        if not self.versions["opencode"]:
-            self.fail("opencode CLI not found (%s)" % cfg.opencode_bin)
-            return
-        self.ok("opencode %s" % self.versions["opencode"])
-        _, out, _, _ = run_proc([cfg.opencode_bin, "models"], timeout=60)
-        available = [l.strip() for l in out.splitlines() if l.strip()]
         requested = cfg.models()
+        available: List[str] = []
+        if not requested or any(parse_target(i)[0] == "opencode" for i in requested):
+            self.versions["opencode"] = first_line_version([cfg.opencode_bin, "--version"])
+            if not self.versions["opencode"]:
+                self.fail("opencode CLI not found (%s)" % cfg.opencode_bin)
+                return
+            self.ok("opencode %s" % self.versions["opencode"])
+            _, out, _, _ = run_proc([cfg.opencode_bin, "models"], timeout=60)
+            available = [l.strip() for l in out.splitlines() if l.strip()]
         if not requested:
-            self.fail("no models selected. Set BENCH_MODELS (or --models a,b; --models all for every "
-                      "model opencode lists). opencode lists:\n        " + "\n        ".join(available))
+            self.fail("no delegate targets selected. Set BENCH_MODELS (or --models a,b): opencode models, "
+                      "'all' / patterns like 'ollama/*', 'claude:<model>' (e.g. claude:haiku), or 'auto'. "
+                      "opencode lists:\n        " + "\n        ".join(available))
             return
         # "all" or shell-style patterns ("ollama/*") expand against the live list,
         # keeping the order opencode prints; explicit names keep the user's order.
         expanded: List[str] = []
         for item in requested:
-            if item == "all" or any(ch in item for ch in "*?["):
+            if parse_target(item)[0] == "opencode" and (item == "all" or any(ch in item for ch in "*?[")):
                 pattern = "*" if item == "all" else item
                 matches = [m for m in available if fnmatch.fnmatchcase(m, pattern)]
                 if not matches:
@@ -565,6 +594,17 @@ class Doctor:
                 expanded.append(item)
         requested = expanded
         for model in requested:
+            backend, target_model = parse_target(model)
+            if backend is None:
+                if not self.allow_auto:
+                    self.warn("auto: needs an orchestrator; not available in scorecard, skipped")
+                    continue
+                self.models.append(model)
+                self.ok("auto: nothing pinned — the orchestrator picks backend and model per task")
+                continue
+            if backend != "opencode":
+                self._check_backend_target(model, backend, target_model)
+                continue
             if model not in available:
                 self.warn("%s: not in `opencode models` output, skipped" % model)
                 continue
@@ -584,6 +624,29 @@ class Doctor:
                 self.ok("%s: reachable, performs tool calls" % model)
         if not self.models:
             self.fail("none of the requested models is usable")
+
+    def _check_backend_target(self, target: str, backend: str, model: Optional[str]) -> None:
+        """claude:/codex: targets — CLI present and model a configured alias or id.
+
+        No ping: these are paid APIs and the backend config lists known models."""
+        config = REPO_ROOT / "backends" / backend / "config.yaml"
+        if not config.exists():
+            self.warn("%s: no backends/%s/config.yaml, skipped" % (target, backend))
+            return
+        text = config.read_text()
+        check = re.search(r"^check_command:\s*(.+)$", text, re.M)
+        if check:
+            code, _, _, _ = run_proc(["/bin/bash", "-c", check.group(1)], timeout=30)
+            if code != 0:
+                self.warn("%s: %s CLI not found, skipped" % (target, backend))
+                return
+        known = set(re.findall(r"^\s*-?\s*(?:alias|id):\s*(\S+)", text, re.M))
+        if model and model not in known:
+            self.warn("%s: '%s' is not a configured alias/id in backends/%s/config.yaml; "
+                      "passed to the CLI as-is" % (target, model, backend))
+        else:
+            self.ok("%s: %s backend available" % (target, backend))
+        self.models.append(target)
 
     def _probe_model(self, model: str, scratch: Path) -> Optional[str]:
         """None = unreachable; "" = fine; other string = warning to record."""
@@ -658,12 +721,16 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
     if condition == "with":
         env["PATH"] = "%s%s%s" % (plugin_root / "bin", os.pathsep, env.get("PATH", ""))
         env["CODE_DELEGATE_USAGE_LOG"] = str(usage_log)
+        # A delegate on the claude backend gets the orchestrator's isolation too:
+        # without this it would load the operator's personal settings/CLAUDE.md.
+        env["CLAUDE_DELEGATE_SETTING_SOURCES"] = "project"
+        backend, target_model = parse_target(model) if model else (None, None)
         if cfg.dry_run:
             env["CODE_DELEGATE_BACKEND"] = "fake"
-        elif not cfg.allow_claude_delegate:
-            env["CODE_DELEGATE_BACKEND"] = "opencode"
-        if model and not cfg.dry_run:
-            env["OPENCODE_DELEGATE_MODEL"] = model
+        elif backend and not cfg.allow_claude_delegate:
+            env["CODE_DELEGATE_BACKEND"] = backend
+        if backend and target_model and not cfg.dry_run:
+            env["%s_DELEGATE_MODEL" % backend.upper()] = target_model
     if cfg.dry_run:
         env["BENCH_DRYRUN_SOLUTION"] = str(task.solution_dir)
         env["BENCH_DRYRUN_EXPECTED_ROUTE"] = task.expected_route
@@ -695,8 +762,10 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
     branches = [b.strip("* ").strip() for b in git(repo, "branch", "--list", check=False).splitlines()]
     hidden = run_hidden_tests(task, repo, raw_dir)
     delegations = [{"backend": r.get("backend"), "model": r.get("model")} for r in records]
-    routed_elsewhere = bool(model) and any(
-        d["backend"] != "opencode" or (d["model"] and d["model"] != model) for d in delegations
+    pinned_backend, pinned_model = parse_target(model) if model else (None, None)
+    routed_elsewhere = pinned_backend is not None and any(
+        d["backend"] != pinned_backend or (d["model"] and pinned_model and d["model"] != pinned_model)
+        for d in delegations
     ) and not cfg.dry_run
 
     record = {
@@ -728,7 +797,7 @@ def cmd_compare(cfg: Config) -> int:
     run_dir = new_run_dir("compare")
     with scratch_dir(cfg, "code-delegate-bench-") as scratch:
         plugin_root = prepare_plugin_root(cfg, scratch)
-        doctor = Doctor(cfg, need_models=True, need_claude=True).run(scratch, plugin_root)
+        doctor = Doctor(cfg, need_models=True, need_claude=True, allow_auto=True).run(scratch, plugin_root)
         doctor.print()
         if doctor.failed or doctor.isolation is None:
             return 2
@@ -747,12 +816,13 @@ def cmd_compare(cfg: Config) -> int:
         runs_file = run_dir / "runs.jsonl"
         env_base = dict(os.environ)
         # Never let a CODE_DELEGATE_* value from the operator's shell leak into runs.
-        for key in ("CODE_DELEGATE_BACKEND", "CODE_DELEGATE_USAGE_LOG", "OPENCODE_DELEGATE_MODEL"):
+        for key in OPERATOR_ENV_TO_DROP:
             env_base.pop(key, None)
         plan = []
         for task in tasks:
             for rep in range(1, cfg.reps + 1):
-                plan.append((task, "without", None, rep))
+                if not cfg.skip_baseline:
+                    plan.append((task, "without", None, rep))
                 for model in doctor.models:
                     plan.append((task, "with", model, rep))
         log("\nrunning %d orchestrator sessions -> %s" % (len(plan), run_dir))
@@ -783,10 +853,10 @@ def scorecard_run(cfg: Config, task: Task, model: str, rep: int, scratch: Path, 
     repo = scratch / label
     seed_repo(repo)
     slug = "bench-" + safe_name(task.slug)
-    backend = "fake" if cfg.dry_run else "opencode"
+    backend, target_model = ("fake", "fake") if cfg.dry_run else parse_target(model)
     header = [
         "---", "Branch: bench/%s" % safe_name(task.slug), "Backend: %s" % backend,
-        "Model: %s" % ("fake" if cfg.dry_run else model),
+        "Model: %s" % target_model,
         "Test: %s %s" % (sys.executable, " ".join(TEST_CMD)),
         "Timeout: %d" % task.timeout(cfg), "StallTimeout: %d" % cfg.stall_timeout, "---", "",
     ]
@@ -795,6 +865,7 @@ def scorecard_run(cfg: Config, task: Task, model: str, rep: int, scratch: Path, 
     usage_log = raw_dir / "delegate-usage.jsonl"
     env = dict(env_base)
     env["CODE_DELEGATE_USAGE_LOG"] = str(usage_log)
+    env["CLAUDE_DELEGATE_SETTING_SOURCES"] = "project"
     if cfg.dry_run:
         env["BENCH_DRYRUN_SOLUTION"] = str(task.solution_dir)
     started = time.time()
@@ -828,6 +899,7 @@ def scorecard_run(cfg: Config, task: Task, model: str, rep: int, scratch: Path, 
         "mode": "scorecard", "task": task.slug, "task_class": task.task_class,
         "expected_route": task.expected_route, "rep": rep, "condition": "scorecard",
         "model_under_test": model, "delegate_tokens": other,
+        "delegate_io_tokens": sum((r.get("input_tokens") or 0) + (r.get("output_tokens") or 0) for r in records),
         "claude_total_tokens": delegate_claude_tokens(records)["total"],
         "bridge_status": bridge_status.get("status"), "bridge_message": bridge_status.get("message"),
         "bridge_attempts": bridge["bridge_attempts"], "committed": committed,
@@ -843,13 +915,13 @@ def cmd_scorecard(cfg: Config) -> int:
     run_dir = new_run_dir("scorecard")
     with scratch_dir(cfg, "code-delegate-bench-") as scratch:
         plugin_root = prepare_plugin_root(cfg, scratch)
-        doctor = Doctor(cfg, need_models=True, need_claude=False).run(scratch, plugin_root)
+        doctor = Doctor(cfg, need_models=True, need_claude=False, allow_auto=False).run(scratch, plugin_root)
         doctor.print()
         if doctor.failed:
             return 2
         (run_dir / "env.json").write_text(json.dumps(environment_block(cfg, doctor, "scorecard", tasks), indent=1))
         env_base = dict(os.environ)
-        for key in ("CODE_DELEGATE_BACKEND", "OPENCODE_DELEGATE_MODEL"):
+        for key in OPERATOR_ENV_TO_DROP:
             env_base.pop(key, None)
         plan = [(t, m, r) for t in tasks for m in doctor.models for r in range(1, cfg.reps + 1)]
         log("\nrunning %d delegate sessions -> %s" % (len(plan), run_dir))
@@ -889,7 +961,7 @@ def environment_block(cfg: Config, doctor: Doctor, mode: str, tasks: List[Task])
         "models": doctor.models, "model_notes": doctor.model_notes,
         "excluded_models": getattr(doctor, "excluded", {}), "reps": cfg.reps,
         "backend_pinned": None if mode == "scorecard" else (
-            "fake" if cfg.dry_run else (None if cfg.allow_claude_delegate else "opencode")),
+            "fake" if cfg.dry_run else (None if cfg.allow_claude_delegate else "per target")),
         "directive_file": str(cfg.directive_file.relative_to(REPO_ROOT))
         if str(cfg.directive_file).startswith(str(REPO_ROOT)) else str(cfg.directive_file),
         "tasks": [{"slug": t.slug, "class": t.task_class, "expected_route": t.expected_route,
@@ -960,8 +1032,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     def common(p, runs=True):
         p.add_argument("tasks", nargs="*", help="task slugs or number prefixes (default: all)")
-        p.add_argument("--models", help="comma-separated opencode models; 'all' or patterns like "
-                       "'ollama/*' expand against `opencode models` (env BENCH_MODELS)")
+        p.add_argument("--models", help="comma-separated delegate targets: opencode models ('all' or "
+                       "patterns like 'ollama/*' expand), 'claude:<model>' (e.g. claude:haiku), or "
+                       "'auto' for unpinned production routing (env BENCH_MODELS)")
         p.add_argument("--dry-run", action="store_true", help="fake orchestrator + fake backend, no LLM calls")
         p.add_argument("--skip-probes", action="store_true", help="skip Claude/model probes in doctor")
         p.add_argument("--isolation", choices=["auto", "cli-login", "isolated-config"])
@@ -979,16 +1052,23 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="don't pin Backend to opencode; let bridge auto-route (may use Claude)")
     p.add_argument("--include-no-tools", action="store_true",
                    help="also compare models that failed doctor's tool-call probe")
+    p.add_argument("--skip-baseline", action="store_true",
+                   help="only with-delegation runs; merge with an earlier run's baseline via `report`")
     p = sub.add_parser("scorecard", help="delegate-only quality through bridge.sh")
     common(p)
-    p = sub.add_parser("report", help="rebuild summary for a results directory")
-    p.add_argument("run_dir")
+    p = sub.add_parser("report", help="rebuild a summary; several run dirs are merged into --out")
+    p.add_argument("run_dirs", nargs="+")
+    p.add_argument("--out", help="output directory when merging several runs")
     p = sub.add_parser("selftest", help="validate tasks' hidden tests and solutions (no LLM)")
     p.add_argument("tasks", nargs="*")
 
     args = ap.parse_args(argv)
     if args.command == "report":
-        log(report.write_report(Path(args.run_dir)))
+        dirs = [Path(d) for d in args.run_dirs]
+        if len(dirs) > 1 and not args.out:
+            ap.error("merging several run directories needs --out DIR")
+        out = Path(args.out) if args.out else dirs[0]
+        log(report.write_report(out, sources=dirs if len(dirs) > 1 or out != dirs[0] else None))
         return 0
     cfg = Config(args)
     return {"doctor": cmd_doctor, "compare": cmd_compare, "scorecard": cmd_scorecard,
