@@ -182,6 +182,26 @@ class ReportTests(unittest.TestCase):
             self.assertIn("Merged from", md)
 
 
+class UsageLimitTests(unittest.TestCase):
+    def test_parse_reset(self):
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Europe/Zurich")
+        now = dt.datetime(2026, 9, 25, 21, 0, tzinfo=tz)
+        info = bench.usage_limit("You've hit your session limit · resets 10:30pm (Europe/Zurich)", now)
+        self.assertEqual(info["reset"], dt.datetime(2026, 9, 25, 22, 30, tzinfo=tz))
+        later = bench.usage_limit("You've hit your session limit · resets 10:30pm (Europe/Zurich)",
+                                  dt.datetime(2026, 9, 25, 23, 0, tzinfo=tz))
+        self.assertEqual(later["reset"].day, 26)
+
+    def test_not_a_limit(self):
+        self.assertIsNone(bench.usage_limit("Error: file not found"))
+        self.assertEqual(bench.usage_limit("rate limit exceeded")["reset"], None)
+
+    def test_classify(self):
+        self.assertEqual(bench.classify_exit(False, True, False, [], limited=True), "usage_limit")
+
+
 class TaskSelectionTests(unittest.TestCase):
     def _slugs(self, tasks=(), tier="small"):
         import argparse

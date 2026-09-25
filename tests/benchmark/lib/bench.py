@@ -210,6 +210,8 @@ class Config:
         self.skip_probes = bool(getattr(args, "skip_probes", False))
         self.include_no_tools = bool(getattr(args, "include_no_tools", False))
         self.skip_baseline = bool(getattr(args, "skip_baseline", False))
+        wait = pick(True if getattr(args, "wait_on_limit", False) else None, "BENCH_WAIT_ON_LIMIT", "")
+        self.wait_on_limit = str(wait).lower() in ("1", "true", "yes")
         self.tier = pick(getattr(args, "tier", None), "BENCH_TIER", "small")
         if self.tier not in TIERS + ("all",):
             raise SystemExit("unknown tier %r (small, large, all)" % self.tier)
@@ -444,8 +446,48 @@ def other_delegate_tokens(records: List[Dict[str, object]]) -> Dict[str, object]
     return totals
 
 
+_LIMIT_RE = re.compile(r"(hit your [\w ]*limit|usage limit|rate limit|session limit|weekly limit)", re.I)
+_RESET_RE = re.compile(r"resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([^)]+)\))?", re.I)
+
+
+def usage_limit(text: str, now: Optional[dt.datetime] = None) -> Optional[Dict[str, object]]:
+    """Recognise a Claude plan/usage limit message; return {"message", "reset"} (reset may be None).
+
+    Handles messages like "You've hit your session limit · resets 10:30pm (Europe/Zurich)".
+    """
+    if not text or not _LIMIT_RE.search(text):
+        return None
+    info: Dict[str, object] = {"message": text.strip()[:200], "reset": None}
+    m = _RESET_RE.search(text)
+    if m:
+        hour, minute = int(m.group(1)), int(m.group(2) or 0)
+        ampm = (m.group(3) or "").lower()
+        if ampm == "pm" and hour != 12:
+            hour += 12
+        elif ampm == "am" and hour == 12:
+            hour = 0
+        tz = None
+        if m.group(4):
+            try:
+                from zoneinfo import ZoneInfo
+                tz = ZoneInfo(m.group(4).strip())
+            except Exception:
+                tz = None
+        current = now or dt.datetime.now(tz or dt.timezone.utc)
+        if tz and current.tzinfo is None:
+            current = current.replace(tzinfo=tz)
+        if hour < 24 and minute < 60:
+            reset = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if reset <= current:
+                reset += dt.timedelta(days=1)
+            info["reset"] = reset
+    return info
+
+
 def classify_exit(timed_out: bool, orch_error: bool, hidden_ok: bool,
-                  records: List[Dict[str, object]]) -> str:
+                  records: List[Dict[str, object]], limited: bool = False) -> str:
+    if limited:
+        return "usage_limit"
     if timed_out:
         return "timeout"
     if hidden_ok:
@@ -799,6 +841,8 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
     except ValueError:
         data, orch_error = {}, True
     orch = claude_tokens(data)
+    limit = usage_limit(str(data.get("result") or "") if data.get("is_error") else "") or \
+        (usage_limit(err) if orch_error else None)
     # Keep the session transcript (audit trail) and split its tokens into phases.
     config_dirs = [Path(env["CLAUDE_CONFIG_DIR"])] if env.get("CLAUDE_CONFIG_DIR") else []
     config_dirs.append(Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude"))
@@ -842,7 +886,9 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
         "working_tree_dirty": bool(status.strip()), "branches": branches,
         "orchestrator_exit_code": code, "orphans_killed": orphans_killed,
         "wall_ms": wall_ms,
-        "exit_reason": classify_exit(timed_out, orch_error, bool(hidden["ok"]), records),
+        "exit_reason": classify_exit(timed_out, orch_error, bool(hidden["ok"]), records, bool(limit)),
+        "usage_limit": {"message": limit["message"],
+                        "reset": limit["reset"].isoformat() if limit["reset"] else None} if limit else None,
     }
     if not cfg.keep:
         shutil.rmtree(repo, ignore_errors=True)
@@ -887,8 +933,16 @@ def cmd_compare(cfg: Config) -> int:
             for i, (task, condition, model, rep) in enumerate(plan, 1):
                 log("[%d/%d] %s %s%s rep %d" % (i, len(plan), task.slug, condition,
                                                 " " + model if model else "", rep))
-                rec = compare_run(cfg, task, condition, model, rep, doctor.isolation, plugin_root,
-                                  scratch / "runs", run_dir / "raw", env_base)
+                while True:
+                    rec = compare_run(cfg, task, condition, model, rep, doctor.isolation, plugin_root,
+                                      scratch / "runs", run_dir / "raw", env_base)
+                    if rec["exit_reason"] != "usage_limit" or not wait_for_limit(cfg, rec["usage_limit"]):
+                        break
+                if rec["exit_reason"] == "usage_limit":
+                    log("\nClaude usage limit reached (%s). Stopping; %d of %d runs done. Re-run later, or "
+                        "use --wait-on-limit to sleep until the reset and continue."
+                        % (rec["usage_limit"]["message"], i - 1, len(plan)))
+                    break
                 rec["run_id"] = run_dir.name
                 with runs_file.open("a") as f:
                     f.write(json.dumps(rec) + "\n")
@@ -898,6 +952,22 @@ def cmd_compare(cfg: Config) -> int:
         except KeyboardInterrupt:
             log("\ninterrupted — writing a report from the runs completed so far")
     return finish_report(run_dir)
+
+
+def wait_for_limit(cfg: Config, limit: Optional[Dict[str, object]]) -> bool:
+    """With --wait-on-limit, sleep until the reported reset (or 30 min if unknown). Returns True to retry."""
+    if not cfg.wait_on_limit:
+        return False
+    reset = limit.get("reset") if limit else None
+    if isinstance(reset, str):
+        reset = dt.datetime.fromisoformat(reset)
+    now = dt.datetime.now(reset.tzinfo) if isinstance(reset, dt.datetime) and reset.tzinfo else dt.datetime.now()
+    seconds = (reset - now).total_seconds() + 120 if isinstance(reset, dt.datetime) else 1800
+    seconds = min(max(seconds, 60), 6 * 3600)
+    log("        usage limit hit; waiting %d min until %s, then retrying this run"
+        % (seconds // 60, reset.isoformat() if isinstance(reset, dt.datetime) else "a retry"))
+    time.sleep(seconds)
+    return True
 
 
 # --------------------------------------------------------------------------- scorecard
@@ -1104,6 +1174,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             p.add_argument("--reps", type=int, help="repetitions per cell (env BENCH_REPS, default 3)")
             p.add_argument("--timeout", type=int, help="per-run timeout seconds (default: task.yaml)")
             p.add_argument("--keep", action="store_true", help="keep scratch repos; path printed at the end")
+            p.add_argument("--wait-on-limit", action="store_true",
+                           help="on a Claude usage limit, sleep until the reported reset and retry (env BENCH_WAIT_ON_LIMIT)")
 
     p = sub.add_parser("doctor", help="preflight checks")
     common(p, runs=False)

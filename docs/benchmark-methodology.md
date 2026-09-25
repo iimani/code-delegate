@@ -303,6 +303,7 @@ stderr, bridge logs, usage log, diff, hidden-test output, prompt, command) in
 | `claude_error` | Orchestrator returned an error or unparseable output |
 | `no_tool_use` | The delegate ended without making a single tool call. Typical of models whose tool-call template doesn't match the endpoint: `ollama/qwen2.5-coder:14b` was observed printing a `write` call as plain text. It means "can't drive opencode", not "wrote wrong code". |
 | `delegate_error` | A delegate process exited non-zero |
+| `usage_limit` | The Claude plan's usage/session limit rejected the session. The run is **not recorded**: `compare` stops and writes a partial report, or with `--wait-on-limit` sleeps until the reset time the CLI reports and retries the same run |
 | `bridge_error` / `bridge_aborted` / `bridge_no_backend` | Scorecard only: the bridge's own verdict |
 
 ## Scoring and aggregation
@@ -374,6 +375,11 @@ cp bench.env.example bench.local.env     # set BENCH_MODELS etc. for this machin
 ./bench.sh selftest                       # validate tasks (no LLM)
 ./bench.sh compare --dry-run --reps 1     # full pipeline with fakes (no LLM)
 ```
+
+**Usage limits.** A full run is dozens of complete Claude Code sessions; on a subscription plan
+it will usually not fit in one usage window (a single large-tier session measured up to 1.3M
+tokens). Use `--wait-on-limit` (or `BENCH_WAIT_ON_LIMIT=true`) for unattended runs that span
+several windows, or an API key / Bedrock / Vertex with `BENCH_ISOLATION=isolated-config`.
 
 Requirements: bash, git, python3 ≥ 3.9, a logged-in `claude` CLI (or env credentials), `opencode`
 with at least one model, and a non-root user. Cost: each compare cell is a full Claude Code session,
