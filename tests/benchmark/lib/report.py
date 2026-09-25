@@ -205,8 +205,10 @@ def _env_md(env: dict) -> List[str]:
     ]
     if env.get("dry_run"):
         lines.append("| **DRY RUN** | fake orchestrator and backend — numbers are synthetic |")
+    excluded = env.get("excluded_models") or {}
     for m, note in (env.get("model_notes") or {}).items():
-        lines.append("| Note: `%s` | %s |" % (m, note))
+        label = "Excluded" if m in excluded else "Note"
+        lines.append("| %s: `%s` | %s |" % (label, m, note))
     return lines + [""]
 
 

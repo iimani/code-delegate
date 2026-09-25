@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fnmatch
 import json
 import os
 import platform
@@ -173,6 +174,7 @@ class Config:
         self.opencode_bin = pick(None, "BENCH_OPENCODE_BIN", "opencode")
         self.keep = bool(getattr(args, "keep", False))
         self.skip_probes = bool(getattr(args, "skip_probes", False))
+        self.include_no_tools = bool(getattr(args, "include_no_tools", False))
         tasks = getattr(args, "tasks", None) or pick(None, "BENCH_TASKS", "")
         if isinstance(tasks, str):
             tasks = [t for t in re.split(r"[,\s]+", tasks) if t]
@@ -461,6 +463,7 @@ class Doctor:
         self.isolation: Optional[Isolation] = None
         self.models: List[str] = []
         self.model_notes: Dict[str, str] = {}
+        self.no_tools: List[str] = []
         self.versions: Dict[str, Optional[str]] = {}
 
     def ok(self, msg): self.lines.append("  ok    " + msg)
@@ -548,8 +551,19 @@ class Doctor:
             self.fail("no models selected. Set BENCH_MODELS (or --models a,b; --models all for every "
                       "model opencode lists). opencode lists:\n        " + "\n        ".join(available))
             return
-        if requested == ["all"]:
-            requested = available
+        # "all" or shell-style patterns ("ollama/*") expand against the live list,
+        # keeping the order opencode prints; explicit names keep the user's order.
+        expanded: List[str] = []
+        for item in requested:
+            if item == "all" or any(ch in item for ch in "*?["):
+                pattern = "*" if item == "all" else item
+                matches = [m for m in available if fnmatch.fnmatchcase(m, pattern)]
+                if not matches:
+                    self.warn("%s: matches no model in `opencode models`" % item)
+                expanded += [m for m in matches if m not in expanded]
+            elif item not in expanded:
+                expanded.append(item)
+        requested = expanded
         for model in requested:
             if model not in available:
                 self.warn("%s: not in `opencode models` output, skipped" % model)
@@ -564,6 +578,7 @@ class Doctor:
             self.models.append(model)
             if note:
                 self.model_notes[model] = note
+                self.no_tools.append(model)
                 self.warn("%s: %s" % (model, note))
             else:
                 self.ok("%s: reachable, performs tool calls" % model)
@@ -694,7 +709,9 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
         "delegate_tokens": other,
         "delegated": bool(records) or bridge["bridge_attempts"] > 0,
         "delegations": delegations, "routed_elsewhere": routed_elsewhere,
-        "bridge_attempts": bridge["bridge_attempts"],
+        # One usage record per backend start; bridge logs are gone if the
+        # orchestrator already ran `bridge.sh --cleanup`.
+        "bridge_attempts": max(bridge["bridge_attempts"], len(records)),
         "hidden_tests": hidden,
         "working_tree_dirty": bool(status.strip()), "branches": branches,
         "orchestrator_exit_code": code,
@@ -715,6 +732,16 @@ def cmd_compare(cfg: Config) -> int:
         doctor.print()
         if doctor.failed or doctor.isolation is None:
             return 2
+        if doctor.no_tools and not cfg.include_no_tools:
+            # Each would cost a full Claude session per task and can only produce
+            # no_tool_use; they are listed in the report instead.
+            log("excluding models that failed the tool probe (use --include-no-tools to keep): %s"
+                % ", ".join(doctor.no_tools))
+            doctor.excluded = {m: doctor.model_notes[m] for m in doctor.no_tools}
+            doctor.models = [m for m in doctor.models if m not in doctor.no_tools]
+            if not doctor.models:
+                log("no models left to compare")
+                return 2
         env_info = environment_block(cfg, doctor, "compare", tasks)
         (run_dir / "env.json").write_text(json.dumps(env_info, indent=1))
         runs_file = run_dir / "runs.jsonl"
@@ -859,7 +886,8 @@ def environment_block(cfg: Config, doctor: Doctor, mode: str, tasks: List[Task])
         "versions": doctor.versions, "code_delegate_sha": sha + ("-dirty" if dirty else ""),
         "isolation": doctor.isolation.mode if doctor.isolation else None,
         "orchestrator_model": cfg.orchestrator_model or "cli-default",
-        "models": doctor.models, "model_notes": doctor.model_notes, "reps": cfg.reps,
+        "models": doctor.models, "model_notes": doctor.model_notes,
+        "excluded_models": getattr(doctor, "excluded", {}), "reps": cfg.reps,
         "backend_pinned": None if mode == "scorecard" else (
             "fake" if cfg.dry_run else (None if cfg.allow_claude_delegate else "opencode")),
         "directive_file": str(cfg.directive_file.relative_to(REPO_ROOT))
@@ -932,7 +960,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     def common(p, runs=True):
         p.add_argument("tasks", nargs="*", help="task slugs or number prefixes (default: all)")
-        p.add_argument("--models", help="comma-separated opencode models, or 'all' (env BENCH_MODELS)")
+        p.add_argument("--models", help="comma-separated opencode models; 'all' or patterns like "
+                       "'ollama/*' expand against `opencode models` (env BENCH_MODELS)")
         p.add_argument("--dry-run", action="store_true", help="fake orchestrator + fake backend, no LLM calls")
         p.add_argument("--skip-probes", action="store_true", help="skip Claude/model probes in doctor")
         p.add_argument("--isolation", choices=["auto", "cli-login", "isolated-config"])
@@ -948,6 +977,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     common(p)
     p.add_argument("--allow-claude-delegate", action="store_true",
                    help="don't pin Backend to opencode; let bridge auto-route (may use Claude)")
+    p.add_argument("--include-no-tools", action="store_true",
+                   help="also compare models that failed doctor's tool-call probe")
     p = sub.add_parser("scorecard", help="delegate-only quality through bridge.sh")
     common(p)
     p = sub.add_parser("report", help="rebuild summary for a results directory")

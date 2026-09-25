@@ -95,6 +95,11 @@ Before every run set, `doctor` runs two one-turn **probes**:
 
 If the leak probe fails in cli-login mode, `doctor` falls back to isolated-config or refuses to run.
 
+`doctor` also pings each model and asks it to create a file with a tool call. In `compare`, models
+that fail the tool probe are **excluded** (each would cost a full Claude session per task only to
+produce `no_tool_use`) and listed in the report; `--include-no-tools` keeps them. `scorecard`
+keeps them, because it spends no Claude tokens.
+
 ### Backend pinning
 
 Left to itself, the orchestrator could send a task to the **claude** backend, either by writing
@@ -283,7 +288,8 @@ so `6 tasks × reps × (1 + models)` sessions. Start with `--reps 1` and one or 
 2. Check `opencode models` lists it and `./bench.sh doctor --models <provider>/<model>` passes.
    The tool probe matters: a model that can't make tool calls through the gateway will only
    produce `no_tool_use`.
-3. Set `BENCH_MODELS` in `bench.local.env`, cheapest first. Pin `BENCH_ORCHESTRATOR_MODEL` if you
+3. Set `BENCH_MODELS` in `bench.local.env`, cheapest first, or use a pattern such as
+   `sovereign/*` to test every model of a provider. Pin `BENCH_ORCHESTRATOR_MODEL` if you
    will compare against runs from another machine.
 4. If policy prevents `claude /login`, use `BENCH_ISOLATION=isolated-config` with Bedrock, Vertex
    or API-key variables.
