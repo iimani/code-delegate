@@ -108,6 +108,19 @@ class HarnessTests(unittest.TestCase):
                 env={"PWD": "/somewhere/else", "PATH": "/usr/bin:/bin"})
             self.assertEqual((code, out.strip()), (0, tmp))
 
+    def test_run_proc_reaps_background_children(self):
+        # An orchestrator that backgrounds bridge.sh and exits must not leave the
+        # delegate running into the next benchmark run.
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "late"
+            script = "(sleep 2; touch %s) >/dev/null 2>&1 & echo started" % marker
+            code, out, _, timed_out = bench.run_proc(["/bin/bash", "-c", script], timeout=30)
+            self.assertEqual((code, out.strip(), timed_out), (0, "started", False))
+            self.assertGreater(bench.LAST_ORPHANS["count"], 0)
+            import time
+            time.sleep(3)
+            self.assertFalse(marker.exists(), "background child survived")
+
     def test_local_env_parsing(self):
         with tempfile.TemporaryDirectory() as tmp:
             f = Path(tmp) / "bench.local.env"

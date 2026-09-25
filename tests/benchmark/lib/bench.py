@@ -66,6 +66,9 @@ def now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
 
+LAST_ORPHANS = {"count": 0}
+
+
 def run_proc(cmd: List[str], cwd: Optional[Path] = None, env: Optional[Dict[str, str]] = None,
              timeout: Optional[float] = None, stdin_devnull: bool = True) -> Tuple[int, str, str, bool]:
     """Run cmd in its own process group; on timeout kill the whole group.
@@ -86,6 +89,10 @@ def run_proc(cmd: List[str], cwd: Optional[Path] = None, env: Optional[Dict[str,
                             start_new_session=True)
     try:
         out, err = proc.communicate(timeout=timeout)
+        # Background children (e.g. a bridge.sh the orchestrator started with
+        # run_in_background) outlive a finished --print session; stop them so
+        # they can't keep writing results or compete with the next run.
+        LAST_ORPHANS["count"] = _reap_group(proc.pid)
         return proc.returncode, out, err, False
     except subprocess.TimeoutExpired:
         _kill_group(proc)
@@ -94,6 +101,27 @@ def run_proc(cmd: List[str], cwd: Optional[Path] = None, env: Optional[Dict[str,
     except KeyboardInterrupt:
         _kill_group(proc)
         raise
+
+
+def _reap_group(pgid: int) -> int:
+    """Terminate any processes left in the group; returns how many signals were needed (0 = none left)."""
+    try:
+        os.killpg(pgid, 0)
+    except (ProcessLookupError, PermissionError):
+        return 0
+    for sig, grace in ((signal.SIGTERM, 15), (signal.SIGKILL, 5)):
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError):
+            return 1
+        deadline = time.time() + grace
+        while time.time() < deadline:
+            try:
+                os.killpg(pgid, 0)
+            except (ProcessLookupError, PermissionError):
+                return 1
+            time.sleep(0.5)
+    return 2
 
 
 def _kill_group(proc: subprocess.Popen) -> None:
@@ -760,6 +788,7 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
     (raw_dir / "prompt.md").write_text(prompt)
     started = time.time()
     code, out, err, timed_out = run_proc(cmd, cwd=repo, env=env, timeout=task.timeout(cfg))
+    orphans_killed = LAST_ORPHANS["count"] > 0 and not timed_out
     wall_ms = int((time.time() - started) * 1000)
     (raw_dir / "orchestrator.json").write_text(out)
     (raw_dir / "orchestrator.stderr.log").write_text(err)
@@ -811,7 +840,7 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
         "bridge_attempts": max(bridge["bridge_attempts"], len(records)),
         "hidden_tests": hidden,
         "working_tree_dirty": bool(status.strip()), "branches": branches,
-        "orchestrator_exit_code": code,
+        "orchestrator_exit_code": code, "orphans_killed": orphans_killed,
         "wall_ms": wall_ms,
         "exit_reason": classify_exit(timed_out, orch_error, bool(hidden["ok"]), records),
     }

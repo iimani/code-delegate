@@ -86,6 +86,13 @@ nobody will answer questions and that the finished code must be committed on the
 branch. This is the one deliberate departure from interactive use. It removes the human approval
 turn, which in real use adds one extra orchestrator turn.
 
+The directive also tells the orchestrator to run `bridge.sh` in the **foreground** (parallel
+tasks as `&` + `wait` in one command). The dispatch skill normally runs the bridge in the
+background and waits for a completion notification, but a `--print` session ends as soon as the
+orchestrator stops, and nothing ever resumes it. Early runs without this instruction scored empty
+results while the delegate kept running. As a safety net, the harness kills anything left in the
+session's process group when it exits and marks the run `orphans_killed`.
+
 ### Isolation from the operator's setup
 
 A personal `~/.claude` (global `CLAUDE.md`, plugins, hooks, MCP servers) would contaminate the
@@ -282,6 +289,7 @@ stderr, bridge logs, usage log, diff, hidden-test output, prompt, command) in
 | `bridge_attempts` | number of backend starts (first try plus feedback rounds) |
 | `hidden_tests` | ok, ran, failures, errors |
 | `working_tree_dirty`, `branches` | git state left behind |
+| `orphans_killed` | processes (usually a backgrounded delegate) were still running when the session ended and were stopped |
 | `wall_ms` | session wall time, including delegates |
 | `exit_reason` | see below |
 
