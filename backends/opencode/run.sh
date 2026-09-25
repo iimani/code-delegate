@@ -32,4 +32,44 @@ if [ -n "$MODEL" ]; then
 fi
 
 cd "$WORKTREE_PATH"
-exec "${CMD[@]}" "$PROMPT_TEXT"
+
+# opencode keeps its session state in a local SQLite database. Several
+# `opencode run` processes starting at the same moment (parallel dispatch)
+# can fail immediately with "database is locked". Retry those quick
+# failures a few times with a jittered backoff; anything else, or a failure
+# after the agent has been working for a while, is passed through as-is.
+# The runner stays the parent, so forward the watcher's SIGTERM to opencode.
+run_with_lock_retry() {
+    local attempt=1 max_attempts=4 started status output_copy fifo child tee_pid
+    output_copy="$(mktemp)"
+    fifo="$(mktemp -u)"
+    while :; do
+        started=$(date +%s)
+        # Output goes through a named pipe to tee: live in the log, and a copy
+        # we can inspect once tee has finished (bash 3.2 can't wait on >(...)).
+        mkfifo "$fifo"
+        tee "$output_copy" < "$fifo" &
+        tee_pid=$!
+        "$@" > "$fifo" 2>&1 &
+        child=$!
+        trap 'kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; wait "$tee_pid" 2>/dev/null; rm -f "$fifo" "$output_copy"; exit 143' TERM INT
+        status=0
+        wait "$child" || status=$?   # runner uses set -e; a failed wait must not exit here
+        wait "$tee_pid" || true
+        rm -f "$fifo"
+        trap - TERM INT
+        if [ "$status" -ne 0 ] && [ "$attempt" -lt "$max_attempts" ] \
+            && [ $(( $(date +%s) - started )) -lt 60 ] && grep -q "database is locked" "$output_copy"; then
+            local delay=$(( attempt * 3 + RANDOM % 5 ))
+            echo "[opencode runner] database is locked (attempt ${attempt}/${max_attempts}); retrying in ${delay}s"
+            sleep "$delay"
+            attempt=$(( attempt + 1 ))
+            : > "$output_copy"
+            continue
+        fi
+        rm -f "$output_copy"
+        return "$status"
+    done
+}
+
+run_with_lock_retry "${CMD[@]}" "$PROMPT_TEXT"

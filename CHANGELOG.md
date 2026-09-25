@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `bridge.sh` stall detection never fired: the watcher's own 60-second "Waiting: no output" heartbeat grew the agent log, which reset the stall timer, so silent agents ran until the wall-clock `Timeout` (default 60 min) instead of being stopped after `StallTimeout`
+- opencode runner: parallel dispatches could fail immediately with `database is locked` (concurrent `opencode run` processes contending for opencode's local SQLite store); such fast failures are now retried up to 4 times with jittered backoff, and the watcher's SIGTERM is forwarded to opencode
+
 ## [1.3.0] - 2026-09-16
 
 ### Added

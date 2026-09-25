@@ -418,6 +418,9 @@ start_watcher() {
                 # so `bridge.sh --logs` shows the process is alive and the stall budget.
                 if [ "$stall_elapsed" -gt 0 ] && [ $(( stall_elapsed % 60 )) -eq 0 ]; then
                     echo "[BRIDGE] $(date '+%H:%M:%S') Waiting: no output for ${stall_elapsed}s, process alive (limit ${stall_seconds}s)" >> "$log"
+                    # The heartbeat grows the log too; don't let it count as agent output,
+                    # or the stall timer resets every 60 s and never reaches the limit.
+                    last_size=$(wc -c < "$log" 2>/dev/null | tr -d ' ' || echo 0)
                 fi
 
                 if [ "$stall_elapsed" -ge "$stall_seconds" ]; then
