@@ -65,7 +65,7 @@ def merge_runs(sources: List[Path]):
                 env.setdefault(key, {}).update(e.get(key) or {})
             known = {t["slug"] for t in env.get("tasks", [])}
             env.setdefault("tasks", []).extend(t for t in e.get("tasks", []) if t["slug"] not in known)
-            for key in ("orchestrator_model", "isolation", "code_delegate_sha"):
+            for key in ("orchestrator_model", "isolation", "code_delegate_sha", "directive_sha"):
                 if e.get(key) != env.get(key):
                     env.setdefault("merge_warnings", []).append(
                         "%s differs: %s vs %s (%s)" % (key, env.get(key), e.get(key), src.name))
@@ -324,7 +324,7 @@ def _env_md(env: dict) -> List[str]:
         "| Orchestrator model | %s |" % env.get("orchestrator_model", "?"),
         "| Isolation | %s |" % env.get("isolation"),
         "| Backend pinned | %s |" % (env.get("backend_pinned") or "no (auto-routing)"),
-        "| Delegation directive | `%s` |" % env.get("directive_file", "?"),
+        "| Delegation directive | `%s` (sha %s) |" % (env.get("directive_file", "?"), env.get("directive_sha") or "n/a"),
         "| Models under test | %s |" % ", ".join("`%s`" % m for m in env.get("models", [])),
         "| Reps per cell | %s |" % env.get("reps"),
     ]

@@ -1019,6 +1019,8 @@ def environment_block(cfg: Config, doctor: Doctor, mode: str, tasks: List[Task])
         "excluded_models": getattr(doctor, "excluded", {}), "reps": cfg.reps,
         "backend_pinned": None if mode == "scorecard" else (
             "fake" if cfg.dry_run else (None if cfg.allow_claude_delegate else "per target")),
+        "directive_sha": __import__("hashlib").sha256(cfg.directive_file.read_bytes()).hexdigest()[:12]
+        if cfg.directive_file.exists() else None,
         "directive_file": str(cfg.directive_file.relative_to(REPO_ROOT))
         if str(cfg.directive_file).startswith(str(REPO_ROOT)) else str(cfg.directive_file),
         "tasks": [{"slug": t.slug, "class": t.task_class, "expected_route": t.expected_route, "tier": t.tier,
