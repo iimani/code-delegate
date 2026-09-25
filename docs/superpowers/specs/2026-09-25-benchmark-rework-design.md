@@ -271,3 +271,25 @@ scripts.
 Both new env vars are harness-facing and don't weaken the security tiering: the
 `--security-check` path is unchanged, and `CODE_DELEGATE_BACKEND` does not override an
 explicit `Backend:` header, so a security-routed task keeps its approved backend.
+
+## Implementation deviations (2026-09-25)
+
+Decided during implementation. `docs/benchmark-methodology.md` is authoritative where it
+differs from the text above.
+
+- **Fixture and tasks are stdlib Python (3.9+), not TypeScript.** Node was not installed on the
+  reference machine, and python3 is already a hard requirement, so no extra runtime is needed
+  (user decision). Tests run with `python3 -m unittest discover -s tests -t .`.
+- **The harness is Python** (`lib/bench.py`, `lib/report.py`) behind a thin `bench.sh`, instead
+  of `lib/common.sh` + `metrics.py`. This gives portable timeouts with process-group kill and
+  native JSON handling.
+- **Models are not auto-discovered by default.** `BENCH_MODELS` or `--models` is required
+  (`--models all` for everything listed). A run's cost scales with the model count, and
+  `opencode models` also lists cloud models.
+- **Exit reasons** are `ok`, `test_fail`, `timeout`, `claude_error`, `no_tool_use` and
+  `delegate_error`, plus `bridge_error`, `bridge_aborted` and `bridge_no_backend` in the
+  scorecard.
+- **Delegation directive**: the README snippet plus a non-interactive approval paragraph, in
+  `tests/benchmark/directive.md`, appended via `--append-system-prompt-file`.
+- **Wrapper location**: `lib/usage_wrap.py` at the repo root. Runners take the wrapped path only
+  when `CODE_DELEGATE_USAGE_LOG` is set and otherwise `exec` the CLI exactly as before.

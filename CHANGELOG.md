@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Reworked `tests/benchmark/` (`bench.sh doctor|compare|scorecard|report|selftest`). The headline metric is the Claude tokens (orchestrator plus any Claude delegate) spent on the same task with vs. without delegation. Correctness is judged by hidden tests the model never sees, and a "correct runs only" saving is reported. The harness is portable: models come from `opencode models`, and per-machine settings go in `bench.local.env`. Auth and context isolation (`--setting-sources project`, or an isolated config dir) are checked by probes. Six stdlib-Python tasks cover every routing bucket, including a mutation-scored test-writing task. A dry-run mode with a fake orchestrator and backend runs in CI.
+- `docs/benchmark-methodology.md` and `docs/how-delegation-works.md`
+- `CODE_DELEGATE_BACKEND` env var: pins the backend for tasks whose `Backend:` is empty or `auto` (an explicit header still wins)
+- `CODE_DELEGATE_USAGE_LOG` env var: when set, backend runners record per-run token usage (claude via `stream-json`, opencode via `--format json`) through `lib/usage_wrap.py`; unset means unchanged behaviour
+
+### Removed
+- The TypeScript benchmark fixture and `tests/benchmark/run.sh`, replaced by the above
+
 ## [1.3.0] - 2026-09-16
 
 ### Added

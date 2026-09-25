@@ -1,0 +1,4 @@
+title: Rename calc_total to order_subtotal
+class: refactor
+expected_route: delegate
+timeout: 900

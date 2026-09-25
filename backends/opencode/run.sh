@@ -32,4 +32,15 @@ if [ -n "$MODEL" ]; then
 fi
 
 cd "$WORKTREE_PATH"
+
+# Opt-in usage accounting (set by tests/benchmark, never by normal delegation):
+# --format json emits per-step token counts; usage_wrap.py keeps the log
+# readable and appends this run's usage to $CODE_DELEGATE_USAGE_LOG.
+if [ -n "${CODE_DELEGATE_USAGE_LOG:-}" ]; then
+    PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+    exec python3 "$PLUGIN_ROOT/lib/usage_wrap.py" --format opencode-json \
+        --backend opencode --model "$MODEL" --log "$CODE_DELEGATE_USAGE_LOG" -- \
+        "${CMD[@]}" --format json "$PROMPT_TEXT"
+fi
+
 exec "${CMD[@]}" "$PROMPT_TEXT"
