@@ -104,9 +104,11 @@ When set to a file path:
   `{backend, model, input_tokens, output_tokens, cache_creation_input_tokens,
   cache_read_input_tokens, total_cost_usd, duration_ms}` to the file. Its human transcript
   still goes to the bridge log.
-- `backends/opencode/run.sh` adds `--format json`, sums token counts across the event stream,
-  appends the same record shape (Claude-specific fields null). Event-stream text is still
-  written to the log in readable form.
+- `backends/opencode/run.sh` adds `--format json` and parses the JSONL event stream
+  (format verified with opencode 1.17.7): sums `part.tokens.{input,output,reasoning,
+  cache.read,cache.write}` over all `step_finish` events, and counts tool-call events.
+  Appends the same record shape (Claude-specific fields null) plus `tool_calls: N`.
+  `text` parts are still written to the log in readable form.
 - `backends/codex/run.sh`: records `{backend, model}` with null tokens (out of scope).
 
 `bridge.sh` passes the env var through unchanged; it needs no other change. The harness sets
@@ -130,11 +132,25 @@ For each task × rep:
    merging delegate work, same as production), hidden tests are copied in and run with
    `node --test`, pass/fail recorded.
 
-**Auth under isolated config dirs:** the harness never points at the real `~/.claude`.
-Auth must come from the environment: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`
-(from `claude setup-token`), or Bedrock/Vertex provider env vars. Doctor's claude ping runs
-under an isolated empty config dir, so a missing env-based credential fails fast with those
-three options listed.
+**Auth & context isolation.** Every run is a fresh `claude --print` process; it cannot
+borrow the calling session's login, and it must not inherit the operator's personal context
+(global `CLAUDE.md`, plugins, hooks, MCP servers) or the *without* condition is contaminated
+and results aren't comparable across machines. Two isolation modes, chosen by doctor:
+
+1. **`cli-login` (preferred):** the operator's normal CLI login (`claude` → `/login`), with
+   `--setting-sources project --strict-mcp-config`. The *with* condition loads code-delegate via
+   `--plugin-dir <repo>` plus its `CLAUDE.md` via `--append-system-prompt-file`; the *without*
+   condition loads neither.
+2. **`isolated-config` (fallback / CI / locked-down PCs):** empty temp `CLAUDE_CONFIG_DIR`;
+   requires an env credential: `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`),
+   `ANTHROPIC_API_KEY`, or Bedrock/Vertex env vars. Verified 2026-09-25: an empty config dir
+   with no env credential fails with `terminal_reason: api_error`.
+
+Doctor runs a **leak probe** in the *without* configuration: it asks the model whether its
+instructions mention code-delegate / delegation directives. If `cli-login` leaks the user's
+global `CLAUDE.md`, doctor falls back to `isolated-config`, or aborts with instructions if no
+env credential exists. The chosen mode is recorded in the report's environment block.
+`BENCH_ISOLATION=cli-login|isolated-config` forces a mode.
 
 ### Mode: `scorecard` (secondary)
 
@@ -156,7 +172,7 @@ claude_total_tokens,            # input+output+cache_create+cache_read, orch + d
 delegate_tokens: {input, output},   # opencode side
 delegated: bool, delegations: [{backend, model}], routed_elsewhere: bool,
 bridge_attempts, hidden_tests: {passed, failed, ok},
-wall_ms, exit_reason (ok|timeout|bridge_error|claude_error|skipped)
+wall_ms, exit_reason (ok|timeout|bridge_error|claude_error|no_tool_use|skipped)
 ```
 
 `delegated` is derived from the usage log (≥1 record) cross-checked with bridge log presence.
@@ -199,6 +215,11 @@ TTL test in task 02 must not rely on real sleeps > 50ms (inject a clock or use s
 ### Error handling
 
 - Unreachable model → `skipped`, excluded from aggregates, listed in report.
+- Delegate finished with zero tool calls → `no_tool_use`. Observed 2026-09-25:
+  `ollama/qwen2.5-coder:14b` emitted its `write` tool call as plain text and opencode ended
+  with `reason: stop` — nothing written. Reported per model as "cannot drive opencode tools"
+  so it isn't confused with wrong code. Doctor's model ping also asks for one trivial tool
+  call and warns on models that fail it.
 - Timeout / non-zero exit → recorded with `exit_reason`, counted as fail; run continues.
 - Unparseable claude JSON → `claude_error`, raw output kept in `results/<run-id>/raw/`.
 - Ctrl-C → partial results still aggregated (trap writes summary).
