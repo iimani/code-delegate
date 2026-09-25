@@ -67,6 +67,12 @@ def run_proc(cmd: List[str], cwd: Optional[Path] = None, env: Optional[Dict[str,
     coreutils `timeout` (absent on stock macOS). Killing the group also stops
     delegates the orchestrator spawned (bridge.sh -> backend CLI).
     """
+    if cwd is not None:
+        # CLIs such as opencode resolve their project directory from $PWD, not
+        # the process cwd; an inherited PWD would make them edit the caller's
+        # directory instead of the scratch repo.
+        env = dict(os.environ if env is None else env)
+        env["PWD"] = str(cwd)
     proc = subprocess.Popen(cmd, cwd=str(cwd) if cwd else None, env=env, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             stdin=subprocess.DEVNULL if stdin_devnull else None,

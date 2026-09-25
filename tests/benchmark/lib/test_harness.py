@@ -99,6 +99,15 @@ class HarnessTests(unittest.TestCase):
         other = bench.other_delegate_tokens(recs)
         self.assertEqual((other["input"], other["tool_calls"]), (100, 4))
 
+    def test_run_proc_sets_pwd_to_cwd(self):
+        # opencode resolves its project dir from $PWD; an inherited PWD made
+        # it write into the caller's directory instead of the scratch repo.
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out, _, _ = bench.run_proc(
+                [sys.executable, "-c", "import os; print(os.environ['PWD'])"], cwd=Path(tmp),
+                env={"PWD": "/somewhere/else", "PATH": "/usr/bin:/bin"})
+            self.assertEqual((code, out.strip()), (0, tmp))
+
     def test_local_env_parsing(self):
         with tempfile.TemporaryDirectory() as tmp:
             f = Path(tmp) / "bench.local.env"
