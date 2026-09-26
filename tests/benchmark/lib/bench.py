@@ -203,6 +203,8 @@ class Config:
         self.allow_claude_delegate = str(allow).lower() in ("1", "true", "yes")
         self.isolation = pick(getattr(args, "isolation", None), "BENCH_ISOLATION", "auto")
         self.directive_file = Path(pick(None, "BENCH_DIRECTIVE_FILE", str(BENCH_DIR / "directive.md")))
+        # The code-delegate checkout the with-delegation runs load (default: this one).
+        self.plugin_dir = Path(pick(None, "BENCH_PLUGIN_DIR", str(REPO_ROOT))).resolve()
         self.ping_timeout = int(pick(None, "BENCH_PING_TIMEOUT", 300))
         self.claude_bin = pick(None, "BENCH_CLAUDE_BIN", "claude")
         self.opencode_bin = pick(None, "BENCH_OPENCODE_BIN", "opencode")
@@ -782,9 +784,9 @@ def prepare_plugin_root(cfg: Config, scratch: Path) -> Path:
     """The plugin the with-delegation runs load. Real runs use this checkout as-is;
     dry runs use a copy with the fake backend added (never touches the repo)."""
     if not cfg.dry_run:
-        return REPO_ROOT
+        return cfg.plugin_dir
     dest = scratch / "plugin"
-    shutil.copytree(REPO_ROOT, dest, ignore=shutil.ignore_patterns(
+    shutil.copytree(cfg.plugin_dir, dest, ignore=shutil.ignore_patterns(
         ".git", "results", "node_modules", "graphify-out", "__pycache__"))
     shutil.copytree(DRYRUN_DIR / "fake-backend", dest / "backends" / "fake")
     os.chmod(dest / "backends" / "fake" / "run.sh", 0o755)
@@ -1077,12 +1079,14 @@ def new_run_dir(mode: str) -> Path:
 
 
 def environment_block(cfg: Config, doctor: Doctor, mode: str, tasks: List[Task]) -> Dict[str, object]:
-    sha = git(REPO_ROOT, "rev-parse", "--short", "HEAD", check=False).strip()
-    dirty = bool(git(REPO_ROOT, "status", "--porcelain", check=False).strip())
+    sha = git(cfg.plugin_dir, "rev-parse", "--short", "HEAD", check=False).strip()
+    dirty = bool(git(cfg.plugin_dir, "status", "--porcelain", check=False).strip())
+    branch = git(cfg.plugin_dir, "rev-parse", "--abbrev-ref", "HEAD", check=False).strip()
     return {
         "mode": mode, "date": now_iso(), "dry_run": cfg.dry_run,
         "os": "%s %s (%s)" % (platform.system(), platform.release(), platform.machine()),
         "versions": doctor.versions, "code_delegate_sha": sha + ("-dirty" if dirty else ""),
+        "code_delegate_branch": branch,
         "isolation": doctor.isolation.mode if doctor.isolation else None,
         "orchestrator_model": cfg.orchestrator_model or "cli-default",
         "models": doctor.models, "model_notes": doctor.model_notes,

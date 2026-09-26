@@ -350,6 +350,19 @@ It also records whether the delegate committed its work.
   catch gross misconfiguration, not subtle leaks; the recorded context-token count is a second
   signal.
 
+## Comparing plugin versions
+
+`BENCH_PLUGIN_DIR` points the with-delegation runs at another code-delegate checkout (for example a
+worktree of a feature branch), and `BENCH_DIRECTIVE_FILE` selects the instructions that invoke it.
+The report records the plugin's commit and branch and the directive's hash. For the fast path:
+
+```bash
+BENCH_PLUGIN_DIR=../code-delegate-fast BENCH_DIRECTIVE_FILE=tests/benchmark/directive-fast.md \
+  ./bench.sh compare --skip-baseline --models claude:sonnet
+```
+
+Merge it with a baseline run via `report --out`, as below.
+
 ## Reusing a baseline
 
 The *without* runs don't depend on the delegate target, so a later run with more targets can reuse
