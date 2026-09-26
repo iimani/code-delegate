@@ -30,12 +30,12 @@ EOF
 bridge.sh run feat-x
 ```
 
-- `Test:` is required. `Files:` protects your uncommitted edits in those files.
+- `Test:` is required and must be **one line** (only the first line of a header is read). Prefer the project's full test command, so the gate is the only test run you need. `Files:` protects your uncommitted edits in those files.
 - Leave `Backend:`/`Model:` out unless this task needs a specific one; the user's defaults (`CODE_DELEGATE_BACKEND`, `<BACKEND>_DELEGATE_MODEL`) apply.
 
 **Read the report:**
 
-- `pass`: changes are applied to the working tree, uncommitted. Check the diffstat; run the full test suite if `Test:` was narrow; commit. Read the diff only if something looks off.
+- `pass`: changes are applied to the working tree, uncommitted, and the gate passed on them. In **one** step: glance at the diffstat, commit, and write your summary. Re-run tests only if `Test:` was narrower than the full suite; read the diff only if the diffstat looks wrong.
 - `running`: run `bridge.sh wait <slugs>` (it waits up to 9 minutes per call).
 - `fail` (after one automatic fix round), `aborted`, `apply_conflict`: the report shows the failing output and keeps the worktree. Either finish it yourself (fix in the worktree, then `git merge <branch>` or copy the files), or `bridge.sh --cleanup <slug>` and re-run with another `Model:`. Don't start over from scratch.
 - `no_changes`: the test already passed without changes; check the `Test:` command.
