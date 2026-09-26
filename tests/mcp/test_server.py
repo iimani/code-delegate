@@ -153,6 +153,20 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(text, "---\nBranch: delegate/feat-x\nTest: make test\nFiles: a.py, b.py\nModel: m\n---\n\n"
                                "## Objective\nDo x.\n\n## Requirements\n- a\n- b c\n")
 
+    def test_diff_truncation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results = root / ".git" / "worktrees_agents" / ".results"
+            results.mkdir(parents=True)
+            (results / "big.patch").write_text("\n".join("+line %d" % i for i in range(400)))
+            (results / "bad.patch").write_text("+should not show")
+            report = 'report\n[{"slug":"big","status":"pass"},{"slug":"bad","status":"fail"}]'
+            text = self.server.with_diffs(root, report)
+        self.assertIn("+line 299", text)
+        self.assertNotIn("+line 300", text)
+        self.assertIn("100 more diff lines", text)
+        self.assertNotIn("should not show", text)
+
     def test_invalid_inputs(self):
         bad = [
             {"name": "x", "objective": "o", "requirements": ["r"], "test": "a\nb"},
@@ -182,6 +196,8 @@ class EndToEndTests(unittest.TestCase):
         self.assertFalse(is_error, text)
         self.assertIn("== one: pass", text)
         self.assertEqual((self.repo / "one.txt").read_text(), "ok\n")
+        self.assertIn("--- applied diff: one ---", text)
+        self.assertIn("+ok", text)
         status = subprocess.run(["git", "status", "--porcelain", "one.txt"], cwd=self.repo,
                                 capture_output=True, text=True).stdout
         self.assertEqual(status.strip(), "?? one.txt")

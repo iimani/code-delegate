@@ -176,7 +176,7 @@ tools, available as soon as the plugin is installed:
 
 The routing guidance (delegate only large work, don't read code to write requirements) is in the tool
 description, so no `CLAUDE.md` changes are needed. One tool call replaces the skill load and shell steps;
-the tools add about 2k tokens of context per orchestrator step.
+the tools add about 2k tokens of context per orchestrator step. The server sets `alwaysLoad`, so Claude Code keeps the tool schemas loaded instead of deferring them behind a tool-search step, and the result includes the applied diff (up to 300 lines) so reviewing needs no extra file reads.
 
 ### Fast path (low overhead)
 

@@ -23,6 +23,7 @@ BRIDGE = PLUGIN_ROOT / "bin" / "bridge.sh"
 SERVER_INFO = {"name": "code-delegate", "version": "1.4.0"}
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 DEFAULT_MAX_WAIT = 540  # under Claude Code's usual 10-minute ceiling for a single call
+DIFF_LINES = 300        # applied diff shown inline, so reviewing needs no extra file reads
 MAX_WAIT_LIMIT = 3300
 
 DELEGATE_DESCRIPTION = """\
@@ -43,7 +44,8 @@ delegate reads the code itself. Split independent parts into separate tasks. `te
 command that proves the task is done (prefer the project's full test command). List `files` \
 the task will touch to protect your uncommitted edits. Leave backend/model empty unless needed.
 
-Result per task: pass (applied; glance at the diffstat, then commit and summarise in one step), \
+Result per task: pass (applied; the diff is included below the report, up to 300 lines: review it \
+there instead of re-reading files, then commit and summarise in the same step), \
 running (call delegate_wait), fail/aborted/apply_conflict (failing output shown, worktree kept: \
 fix it yourself or retry with another model), no_changes, error."""
 
@@ -164,6 +166,31 @@ def run_bridge(root: Path, mode: str, slugs: List[str], max_wait: int) -> str:
     return output or "bridge.sh %s returned no output (exit %d)" % (mode, proc.returncode)
 
 
+def with_diffs(root: Path, report: str) -> str:
+    """Append the applied diff of every passed task (truncated) to the bridge report."""
+    statuses = []
+    for line in reversed(report.splitlines()):
+        if line.startswith("[{"):
+            try:
+                statuses = json.loads(line)
+            except ValueError:
+                statuses = []
+            break
+    parts = [report]
+    for entry in statuses:
+        if entry.get("status") != "pass":
+            continue
+        patch = root / ".git" / "worktrees_agents" / ".results" / ("%s.patch" % entry.get("slug"))
+        if not patch.exists():
+            continue
+        lines = patch.read_text(errors="replace").splitlines()
+        shown = lines[:DIFF_LINES]
+        parts.append("\n--- applied diff: %s ---\n%s" % (entry["slug"], "\n".join(shown)))
+        if len(lines) > DIFF_LINES:
+            parts.append("... %d more diff lines not shown (git diff to see them)" % (len(lines) - DIFF_LINES))
+    return "\n".join(parts)
+
+
 def tool_delegate(args: Dict[str, Any]) -> str:
     tasks = args.get("tasks")
     if not isinstance(tasks, list) or not tasks:
@@ -182,7 +209,7 @@ def tool_delegate(args: Dict[str, Any]) -> str:
     # Validate everything before writing anything.
     for slug, text in zip(slugs, texts):
         (root / (".local_task_%s.md" % slug)).write_text(text)
-    return run_bridge(root, "run", slugs, clamp_wait(args.get("max_wait_seconds")))
+    return with_diffs(root, run_bridge(root, "run", slugs, clamp_wait(args.get("max_wait_seconds"))))
 
 
 def tool_delegate_wait(args: Dict[str, Any]) -> str:
@@ -190,7 +217,8 @@ def tool_delegate_wait(args: Dict[str, Any]) -> str:
     if not isinstance(names, list) or not names:
         raise ToolError("`names` must be a non-empty list")
     root = project_root(args.get("cwd"))
-    return run_bridge(root, "wait", [slugify(str(n)) for n in names], clamp_wait(args.get("max_wait_seconds")))
+    return with_diffs(root, run_bridge(root, "wait", [slugify(str(n)) for n in names],
+                                       clamp_wait(args.get("max_wait_seconds"))))
 
 
 HANDLERS = {"delegate": tool_delegate, "delegate_wait": tool_delegate_wait}
