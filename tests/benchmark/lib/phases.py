@@ -33,6 +33,8 @@ def classify_tool(name: str, tool_input: dict) -> str:
     path = str(tool_input.get("file_path") or tool_input.get("path") or "")
     if name == "Skill":
         return "skill"
+    if name.startswith("mcp__") and re.search(r"__delegate(_wait)?$", name):
+        return "dispatch"
     if name in ("Task", "Agent"):
         return "subagent"
     if name in ("Write", "Edit", "MultiEdit", "NotebookEdit"):

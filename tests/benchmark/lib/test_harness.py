@@ -250,6 +250,8 @@ class PhaseTests(unittest.TestCase):
         self.assertEqual(c("Bash", {"command": "python3 -m unittest discover"}), "test")
         self.assertEqual(c("Bash", {"command": "cd .git/worktrees_agents/x && git status"}), "review")
         self.assertEqual(c("Bash", {"command": "cat app/x.py"}), "explore")
+        self.assertEqual(c("mcp__plugin_code-delegate_code-delegate__delegate", {"tasks": []}), "dispatch")
+        self.assertEqual(c("mcp__code-delegate__delegate_wait", {"names": []}), "dispatch")
 
     def test_breakdown_dedupes_message_ids(self):
         import phases

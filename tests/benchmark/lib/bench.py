@@ -544,8 +544,24 @@ def claude_cmd(cfg: Config, isolation: Isolation, prompt: str, with_plugin: Opti
         cmd += ["--model", cfg.orchestrator_model]
     if with_plugin is not None:
         cmd += ["--plugin-dir", str(with_plugin), "--append-system-prompt-file", str(cfg.directive_file)]
+        mcp_config = plugin_mcp_config(with_plugin)
+        if mcp_config:
+            # --strict-mcp-config (isolation) also hides the plugin's own MCP servers;
+            # pass them explicitly, as installing the plugin would. The option takes
+            # several values, so it goes right after the binary, where the next flag ends it.
+            cmd[len(base):len(base)] = ["--mcp-config", str(mcp_config)]
     cmd.append(prompt)
     return cmd
+
+
+def plugin_mcp_config(plugin: Path) -> Optional[Path]:
+    """The plugin's .mcp.json with ${CLAUDE_PLUGIN_ROOT} resolved, or None if it has none."""
+    source = plugin / ".mcp.json"
+    if not source.exists():
+        return None
+    resolved = Path(tempfile.gettempdir()) / ("code-delegate-bench-mcp-%s.json" % safe_name(str(plugin)))
+    resolved.write_text(source.read_text().replace("${CLAUDE_PLUGIN_ROOT}", str(plugin)))
+    return resolved
 
 
 def claude_probe(cfg: Config, isolation: Isolation, prompt: str, plugin: Optional[Path],
