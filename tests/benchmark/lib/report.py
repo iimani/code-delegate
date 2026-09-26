@@ -50,6 +50,8 @@ def merge_runs(sources: List[Path]):
     runs: List[dict] = []
     env: dict = {}
     for src in sources:
+        if not (src / "runs.jsonl").exists():
+            raise SystemExit("not a results directory (no runs.jsonl): %s" % src)
         r, e = _load(src)
         runs += r
         if not env:
