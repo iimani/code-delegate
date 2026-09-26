@@ -1,0 +1,6 @@
+title: Suppliers resource across all layers
+class: boilerplate
+expected_route: delegate
+tier: large
+fixture: large
+timeout: 3600

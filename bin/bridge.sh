@@ -64,6 +64,14 @@ resolve_backend() {
     local backend
     backend="$(parse_header "$file" "Backend")"
 
+    # CODE_DELEGATE_BACKEND pins the backend for tasks that leave it to auto
+    # (used by tests/benchmark to exercise one backend). An explicit Backend:
+    # header always wins, so security routing written into the task is kept.
+    if { [ -z "$backend" ] || [ "$backend" = "auto" ]; } && [ -n "${CODE_DELEGATE_BACKEND:-}" ]; then
+        backend="$CODE_DELEGATE_BACKEND"
+        echo "Backend from CODE_DELEGATE_BACKEND: $backend" >&2
+    fi
+
     if [ -z "$backend" ] || [ "$backend" = "auto" ]; then
         backend="$(auto_select_backend "$file")"
         if [ -z "$backend" ]; then

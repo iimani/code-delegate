@@ -20,7 +20,7 @@ jobs:
       - name: Shellcheck all scripts
         run: |
           shopt -s globstar nullglob
-          files=(bin/*.sh backends/**/*.sh .claude-plugin/hooks/*.sh tests/workflow/run.sh tests/bridge/run.sh)
+          files=(bin/*.sh backends/**/*.sh .claude-plugin/hooks/*.sh tests/workflow/run.sh tests/bridge/run.sh tests/benchmark/bench.sh tests/benchmark/lib/dryrun/fake-backend/run.sh)
           echo "Checking: ${files[*]}"
           shellcheck -S warning "${files[@]}"
 
@@ -73,6 +73,28 @@ jobs:
           git config --global user.email ci@localhost
           git config --global user.name ci
           tests/bridge/run.sh
+
+  # Benchmark harness self-checks — no LLM calls: unit tests, task validation
+  # (hidden tests fail on the fixture, pass on the reference solution), and a
+  # full dry run through the real bridge.sh with a fake orchestrator/backend.
+  benchmark-harness:
+    name: Benchmark harness (no LLM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests/benchmark/lib -p 'test_*.py' -v
+      - name: Task self-test
+        run: tests/benchmark/bench.sh selftest
+      - name: Dry-run compare and scorecard
+        run: |
+          git config --global user.email ci@localhost
+          git config --global user.name ci
+          tests/benchmark/bench.sh compare --dry-run --reps 1 --tier all
+          tests/benchmark/bench.sh scorecard --dry-run --reps 1 --tier all
 
   # Runs the live-prompt behavioral scenarios against the real `claude` CLI.
   # Manual-only: these call the Anthropic API and cost real tokens, so they

@@ -20,4 +20,14 @@ if [ -n "$MODEL" ]; then
 fi
 
 cd "$WORKTREE_PATH"
+
+# Opt-in usage accounting (tests/benchmark): codex token parsing isn't
+# implemented, so only the backend/model/duration record is written.
+if [ -n "${CODE_DELEGATE_USAGE_LOG:-}" ]; then
+    PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+    exec python3 "$PLUGIN_ROOT/lib/usage_wrap.py" --format none \
+        --backend codex --model "$MODEL" --log "$CODE_DELEGATE_USAGE_LOG" -- \
+        "${CMD[@]}" "$PROMPT_TEXT"
+fi
+
 exec "${CMD[@]}" "$PROMPT_TEXT"

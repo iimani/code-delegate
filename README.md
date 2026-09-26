@@ -190,6 +190,19 @@ failing test output). It returns after 9 minutes at most; `bridge.sh wait <slug>
 - **Test gates** — optional test commands that must pass before a task is considered done
 - **Watcher** — kills stalled or doom-looping agents (timeout, stall detection, failure loop counting)
 
+## Benchmarks
+
+`tests/benchmark/` measures the Claude tokens a session spends on the same task with vs. without
+delegation, and scores correctness with hidden tests. It runs against whatever models your
+opencode install lists, including a company's self-hosted platform.
+
+- [Benchmark methodology](docs/benchmark-methodology.md): conditions, metrics, scoring, caveats
+- [How delegation works](docs/how-delegation-works.md): orchestrator, skills, bridge and backends end to end
+
+```bash
+cd tests/benchmark && ./bench.sh doctor && ./bench.sh compare --reps 1 01
+```
+
 ## Bridge CLI
 
 ```bash
@@ -264,7 +277,7 @@ code-delegate/
 ├── AGENTS.md                    # Codex/OpenCode instructions + tool mappings
 └── tests/
     ├── workflow/                # Behavioral validation scenarios (does it classify/route correctly?)
-    └── benchmark/                # Orchestrator cost/token impact of delegating vs. implementing directly
+    └── benchmark/                # Claude tokens with vs. without delegation, scored by hidden tests
 ```
 
 ## License

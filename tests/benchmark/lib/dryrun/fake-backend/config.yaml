@@ -1,0 +1,16 @@
+name: fake
+description: Dry-run backend for tests/benchmark — copies the task's reference solution, no LLM
+check_command: "true"
+default_model: fake
+models:
+  - alias: fake
+    id: fake
+    description: "Reference solution copier"
+    security_ok: false
+capabilities:
+  - single-file
+tags:
+  security_ok: false
+  cross_file: true
+  type_reasoning: true
+cost_tier: free
