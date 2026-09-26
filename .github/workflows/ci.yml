@@ -20,7 +20,7 @@ jobs:
       - name: Shellcheck all scripts
         run: |
           shopt -s globstar nullglob
-          files=(bin/*.sh backends/**/*.sh .claude-plugin/hooks/*.sh tests/workflow/run.sh)
+          files=(bin/*.sh backends/**/*.sh .claude-plugin/hooks/*.sh tests/workflow/run.sh tests/bridge/run.sh)
           echo "Checking: ${files[*]}"
           shellcheck -S warning "${files[@]}"
 
@@ -61,6 +61,18 @@ jobs:
             echo "Version mismatch across manifests — bump them together."
             exit 1
           fi
+
+  # Fast-path bridge behaviour (bridge.sh run/wait) with a scripted fake backend — no LLM.
+  bridge-fast-path:
+    name: Bridge fast path (fake backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run bridge tests
+        run: |
+          git config --global user.email ci@localhost
+          git config --global user.name ci
+          tests/bridge/run.sh
 
   # Runs the live-prompt behavioral scenarios against the real `claude` CLI.
   # Manual-only: these call the Anthropic API and cost real tokens, so they

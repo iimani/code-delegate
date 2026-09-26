@@ -4,6 +4,8 @@
 #
 # Usage:
 #   bridge.sh <slug>              Run task or feedback for the given branch slug
+#   bridge.sh run <slug>...       Fast path: run tasks in parallel, one fix round, apply on pass (bin/bridge-run.sh)
+#   bridge.sh wait <slug>...      Keep waiting for tasks started with `run`
 #   bridge.sh --status            List active agent worktrees
 #   bridge.sh --cleanup <slug>    Remove a worktree after branch is approved
 #   bridge.sh --logs [slug]       Tail logs for one or all running agents
@@ -452,6 +454,10 @@ start_watcher() {
 
 # --- Main ---
 
+if [ "${1:-}" = "run" ] || [ "${1:-}" = "wait" ]; then
+    exec "$PLUGIN_ROOT/bin/bridge-run.sh" "$@"
+fi
+
 if [ "${1:-}" = "--status" ]; then
     handle_status
 fi
@@ -676,12 +682,15 @@ if [ "$MODE" = "task" ]; then
         else
             git worktree add "$WORKTREE_PATH" -b "$BRANCH"
         fi
+        # Base commit, so `bridge.sh run` can diff everything the delegate changed.
+        git rev-parse HEAD > "${WORKTREE_PATH}/.bridge_base"
         echo "Linking dependencies..."
         link_dependencies "$WORKTREE_PATH"
     fi
 
     cp "$INSTRUCTION_FILE" "${WORKTREE_PATH}/.local_task.md"
     echo "$BACKEND" > "${WORKTREE_PATH}/.bridge_backend"
+    echo "$MODEL" > "${WORKTREE_PATH}/.bridge_model"
 
 elif [ "$MODE" = "feedback" ]; then
     [ -d "$WORKTREE_PATH" ] || die "No worktree found for slug $SLUG -- cannot apply feedback"

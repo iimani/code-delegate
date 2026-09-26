@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Fast-path delegation: `bridge.sh run <slug>...` starts tasks in parallel, gives each one automatic fix round when its test gate fails, applies passing work to the working tree uncommitted, and prints a compact report (diffstat, or the failing test output); `bridge.sh wait` resumes after the 9-minute `--max-wait`. New slim `code-delegate:fast` skill: delegate only large work, don't pre-read code for specs, dispatch in one step. Motivated by benchmark evidence that the multi-step flow costs ~200k orchestrator tokens per task
+- `tests/bridge/run.sh`: fast-path tests with a scripted fake backend (run in CI)
+
 ### Fixed
 - `bridge.sh` stall detection never fired: the watcher's own 60-second "Waiting: no output" heartbeat grew the agent log, which reset the stall timer, so silent agents ran until the wall-clock `Timeout` (default 60 min) instead of being stopped after `StallTimeout`
 - opencode runner: parallel dispatches could fail immediately with `database is locked` (concurrent `opencode run` processes contending for opencode's local SQLite store); such fast failures are now retried up to 4 times with jittered backoff, and the watcher's SIGTERM is forwarded to opencode
