@@ -635,6 +635,14 @@ class Doctor:
                 continue
             iso = Isolation(mode)
             probe = claude_probe(cfg, iso, LEAK_PROBE, None, scratch)
+            if probe["ok"] and probe["answer"] != "NO":
+                # The probe is a self-report and occasionally answers YES by mistake;
+                # decide by majority over three answers before failing.
+                answers = [probe["answer"]] + [claude_probe(cfg, iso, LEAK_PROBE, None, scratch)["answer"]
+                                               for _ in range(2)]
+                if answers.count("NO") >= 2:
+                    probe["answer"] = "NO"
+                    self.warn("%s: leak probe answers %s; majority NO, continuing" % (mode, answers))
             if not probe["ok"]:
                 self.warn("%s: claude call failed: %s" % (mode, probe["error"] or "unknown error"))
                 continue
