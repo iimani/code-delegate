@@ -26,7 +26,7 @@ jobs:
 
       - name: Validate JSON manifests
         run: |
-          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json .claude-plugin/hooks/hooks.json .codex-plugin/plugin.json; do
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json .claude-plugin/hooks/hooks.json .codex-plugin/plugin.json .mcp.json; do
             echo "Validating $f"
             python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f"
           done
@@ -73,6 +73,8 @@ jobs:
           git config --global user.email ci@localhost
           git config --global user.name ci
           tests/bridge/run.sh
+      - name: Run MCP delegate tool tests
+        run: python3 -m unittest discover -s tests/mcp -p 'test_*.py' -v
 
   # Benchmark harness self-checks — no LLM calls: unit tests, task validation
   # (hidden tests fail on the fixture, pass on the reference solution), and a

@@ -165,6 +165,19 @@ When you reach the implementation phase, invoke the `code-delegate:delegate` ski
 instead of writing code yourself. Invoke via: Skill tool → skill: "code-delegate:delegate"
 ```
 
+### `delegate` tool (lowest overhead)
+
+The plugin ships an MCP server (`.mcp.json` → `mcp/server.py`, Python standard library only) with two
+tools, available as soon as the plugin is installed:
+
+- **`delegate`**: takes a list of tasks (`name`, `objective`, `requirements`, one-line `test`, optional
+  `files`, `backend`, `model`), writes the task files, runs `bridge.sh run` and returns the compact report.
+- **`delegate_wait`**: keeps waiting for tasks reported as `running`.
+
+The routing guidance (delegate only large work, don't read code to write requirements) is in the tool
+description, so no `CLAUDE.md` changes are needed. One tool call replaces the skill load and shell steps;
+the tools add about 2k tokens of context per orchestrator step.
+
 ### Fast path (low overhead)
 
 Every orchestrator step re-sends its whole context, so the full plan → distribute → dispatch → review → merge
