@@ -139,7 +139,7 @@ resolve_model() {
     fi
 
     # Nothing resolved — let the backend runner handle an empty model
-    [ -n "$model" ] || return
+    [ -n "$model" ] || return 0
 
     # Resolve alias → id; pass through unchanged if it is not a known alias
     # (e.g. a raw dynamic model ID like ollama/qwen3.6:27b)
