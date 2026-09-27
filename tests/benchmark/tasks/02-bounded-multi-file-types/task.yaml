@@ -1,0 +1,4 @@
+title: Generic TTL cache with tests
+class: type-reasoning
+expected_route: delegate-larger
+timeout: 1200

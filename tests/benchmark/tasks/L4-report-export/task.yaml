@@ -1,0 +1,6 @@
+title: CSV and JSON export for every report, via CLI and API
+class: feature
+expected_route: delegate
+tier: large
+fixture: large
+timeout: 3600

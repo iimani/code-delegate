@@ -1,0 +1,4 @@
+title: Dependency-injected logger across modules
+class: architectural
+expected_route: direct
+timeout: 1200

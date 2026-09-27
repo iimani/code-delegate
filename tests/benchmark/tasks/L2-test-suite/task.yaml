@@ -1,0 +1,6 @@
+title: Test suites for money, dates and pricing
+class: test-generation
+expected_route: delegate
+tier: large
+fixture: large
+timeout: 3600

@@ -5,6 +5,8 @@
 # Test results
 tests/workflow/results/
 tests/benchmark/results/
+tests/benchmark/bench.local.env
+__pycache__/
 
 # Local dev settings (machine-specific paths and permissions)
 .claude/

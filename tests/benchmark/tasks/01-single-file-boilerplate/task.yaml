@@ -1,0 +1,4 @@
+title: Structured JSON logger
+class: boilerplate
+expected_route: delegate
+timeout: 900

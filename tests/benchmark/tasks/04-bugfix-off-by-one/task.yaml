@@ -1,0 +1,4 @@
+title: Fix dropped final chunk in chunk_ranges
+class: bugfix
+expected_route: delegate
+timeout: 900

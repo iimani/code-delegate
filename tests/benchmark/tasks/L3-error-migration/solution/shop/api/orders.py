@@ -1,0 +1,32 @@
+from shop.api.http import Request, Response
+from shop.api.responses import bad_request, error_response, json_response
+from shop.api.router import Router
+from shop.api.serializers import order_to_dict
+from shop.errors import ServiceError
+
+
+def register(router: Router, app) -> None:
+    def place(req: Request) -> Response:
+        raw_items = req.body.get("items")
+        if not isinstance(raw_items, list):
+            return bad_request("items must be a list of {product_id, quantity}")
+        items = []
+        for item in raw_items:
+            if not isinstance(item, dict) or "product_id" not in item or "quantity" not in item:
+                return bad_request("each item needs product_id and quantity")
+            items.append((item["product_id"], item["quantity"]))
+        try:
+            order = app.order_service.place(req.body.get("customer_id", ""), items, req.body.get("discount_code"))
+        except ServiceError as exc:
+            return error_response(exc)
+        return json_response(order_to_dict(order), 201)
+
+    def get(req: Request) -> Response:
+        try:
+            order = app.order_service.get(req.params["id"])
+        except ServiceError as exc:
+            return error_response(exc)
+        return json_response(order_to_dict(order))
+
+    router.add("POST", "/orders", place)
+    router.add("GET", "/orders/{id}", get)
