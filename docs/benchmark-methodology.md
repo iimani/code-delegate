@@ -353,12 +353,12 @@ It also records whether the delegate committed its work.
 ## Comparing plugin versions
 
 `BENCH_PLUGIN_DIR` points the with-delegation runs at another code-delegate checkout (for example a
-worktree of a feature branch), and `BENCH_DIRECTIVE_FILE` selects the instructions that invoke it.
-The report records the plugin's commit and branch and the directive's hash. For the fast path:
+worktree of a feature branch), and `BENCH_DIRECTIVE_FILE` selects the instructions for the orchestrator.
+The report records the plugin's commit and branch and the directive's hash. For the `delegate` MCP tool:
 
 ```bash
-BENCH_PLUGIN_DIR=../code-delegate-fast BENCH_DIRECTIVE_FILE=tests/benchmark/directive-fast.md \
-  ./bench.sh compare --skip-baseline --models claude:sonnet
+BENCH_PLUGIN_DIR=../code-delegate-mcp BENCH_DIRECTIVE_FILE=tests/benchmark/directive-mcp.md \
+  ./bench.sh compare --skip-baseline --variant mcp --models claude:sonnet
 ```
 
 Merge it with a baseline run via `report --out`, as below.

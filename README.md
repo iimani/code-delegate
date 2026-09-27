@@ -57,6 +57,14 @@ The opencode backend ships with an empty `default_model` so a fresh install stay
 export OPENCODE_DELEGATE_MODEL="ollama/qwen3.6:27b"
 ```
 
+To make one backend your default (for example your local or company model server), also set `CODE_DELEGATE_BACKEND`:
+
+```bash
+export CODE_DELEGATE_BACKEND=opencode
+```
+
+It applies whenever a task file leaves `Backend:` empty or `auto`; an explicit `Backend:` header always wins.
+
 The `<BACKEND>_DELEGATE_MODEL` pattern works for every backend, not just opencode — `CLAUDE_DELEGATE_MODEL` and `CODEX_DELEGATE_MODEL` are resolved the same way. Precedence (highest first): `Model:` task header → `<BACKEND>_DELEGATE_MODEL` env var → config `default_model` → the CLI's own default.
 
 **Claude Code CLI (already installed if you're reading this):**
@@ -157,6 +165,30 @@ When you reach the implementation phase, invoke the `code-delegate:delegate` ski
 instead of writing code yourself. Invoke via: Skill tool → skill: "code-delegate:delegate"
 ```
 
+### `delegate` tool (lowest overhead)
+
+The plugin ships an MCP server (`.mcp.json` → `mcp/server.py`, Python standard library only) with two
+tools, available as soon as the plugin is installed:
+
+- **`delegate`**: takes a list of tasks (`name`, `objective`, `requirements`, one-line `test`, optional
+  `files`, `backend`, `model`), writes the task files, runs `bridge.sh run` and returns the compact report.
+- **`delegate_wait`**: keeps waiting for tasks reported as `running`.
+
+The routing guidance (delegate only large work, don't read code to write requirements) is in the tool
+description, so no `CLAUDE.md` changes are needed. One tool call replaces the skill load and shell steps;
+the tools add about 2k tokens of context per orchestrator step. The server sets `alwaysLoad`, so Claude Code keeps the tool schemas loaded instead of deferring them behind a tool-search step, and the result includes the applied diff (up to 300 lines) so reviewing needs no extra file reads.
+
+### Fast path (low overhead)
+
+Every orchestrator step re-sends its whole context, so the full plan → distribute → dispatch → review → merge
+flow costs the orchestrator several steps per task, which is more than a small task saves (see
+`tests/benchmark`). The fast path keeps it to one dispatch step, and the `delegate` tool above is its entry
+point for Claude Code; it can also be run directly:
+
+`bridge.sh run <slug>...` starts the tasks in parallel, gives each one automatic fix round if its `Test:` gate
+fails, applies passing work to your working tree **uncommitted**, and prints a compact report (diffstat, or the
+failing test output). It returns after 9 minutes at most; `bridge.sh wait <slug>...` continues waiting.
+
 ## Features
 
 - **Multi-backend dispatch** — route tasks to local models (free) or cloud APIs (capable) based on complexity
@@ -184,6 +216,8 @@ cd tests/benchmark && ./bench.sh doctor && ./bench.sh compare --reps 1 01
 
 ```bash
 bridge.sh <slug>                          # Run task
+bridge.sh run <slug>... [--max-wait S]    # Fast path: parallel, fix round, apply uncommitted, compact report
+bridge.sh wait <slug>... [--max-wait S]   # Keep waiting for tasks started with run
 bridge.sh --status                        # List active agents
 bridge.sh --backends                      # List installed backends
 bridge.sh --models [backend]              # List available models
