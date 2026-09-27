@@ -34,6 +34,13 @@ fi
 
 STALE_HOURS=8
 NOW=$(date +%s)
+
+# File modification time in epoch seconds. `date -r` behaves the same with GNU and BSD
+# date; `stat -f %m` means something else on Linux (filesystem info) and exits non-zero
+# after printing, which corrupted the age calculation.
+mtime() {
+  date -r "$1" +%s 2>/dev/null || echo "$NOW"
+}
 # Branches merged into the current branch or main. Strip git's markers: "* " for the
 # current branch and "+ " for branches checked out in another worktree (every delegate
 # branch is), otherwise no delegate branch would ever match.
@@ -49,13 +56,13 @@ for dir in "${dirs[@]}"; do
   log_age=0
 
   if [[ -f "$dir/agent.log" ]]; then
-    log_mtime=$(stat -f %m "$dir/agent.log" 2>/dev/null || stat -c %Y "$dir/agent.log" 2>/dev/null || echo "$NOW")
+    log_mtime=$(mtime "$dir/agent.log")
     log_age=$(( NOW - log_mtime ))
     if (( log_age > STALE_HOURS * 3600 )); then
       stale=true
     fi
   else
-    dir_mtime=$(stat -f %m "$dir" 2>/dev/null || stat -c %Y "$dir" 2>/dev/null || echo "$NOW")
+    dir_mtime=$(mtime "$dir")
     log_age=$(( NOW - dir_mtime ))
     if (( log_age > STALE_HOURS * 3600 )); then
       stale=true

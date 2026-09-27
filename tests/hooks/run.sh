@@ -43,9 +43,9 @@ add_worktree merged-dirty-old yes old yes
 add_worktree unmerged-clean-old no old no
 add_worktree merged-clean-new yes new no
 
-mkdir -p sub && cd sub   # the hook must work from a subdirectory too
+mkdir -p sub && cd sub || exit 1   # the hook must work from a subdirectory too
 output="$("$BASH" "$HOOK" 2>&1)"
-cd ..
+cd .. || exit 1
 
 exists() { [ -d ".git/worktrees_agents/$1" ] && echo kept || echo removed; }
 check "merged, clean, idle worktree is removed" "$(exists merged-clean-old)" removed

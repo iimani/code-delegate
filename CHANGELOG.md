@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Plugin hooks never loaded: they lived in `.claude-plugin/hooks/`, but Claude Code loads plugin hooks from `hooks/hooks.json` at the plugin root (and the scripts' `../bin/bridge.sh` lookup only resolves from there). Moved to `hooks/`; the hook commands now run the scripts directly (`#!/bin/bash`) instead of through whichever `bash` is first on `PATH`
-- The Stop hook's worktree cleanup could delete unfinished work: it removed any worktree idle for 24 hours, merged or not, with `git worktree remove --force`, and its merged-branch check never matched because git prefixes branches checked out in another worktree with `+`. It now removes a worktree only when it is idle, merged, and has no uncommitted or untracked changes, runs from the repository root, and reports why it keeps the others
+- The Stop hook's worktree cleanup could delete unfinished work: it removed any worktree idle for 24 hours, merged or not, with `git worktree remove --force`, and its merged-branch check never matched because git prefixes branches checked out in another worktree with `+`. It now removes a worktree only when it is idle, merged, and has no uncommitted or untracked changes, runs from the repository root, and reports why it keeps the others. Its idle-time check also never worked on Linux (`stat -f %m` means filesystem info there and corrupted the computed age); it now uses `date -r`, which behaves the same on GNU and BSD
 
 ## [2.0.1] - 2026-09-27
 
