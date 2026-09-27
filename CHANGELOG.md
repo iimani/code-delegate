@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CODE_DELEGATE_BACKEND` env var: pins the backend for tasks whose `Backend:` is empty or `auto` (an explicit header still wins)
 - `CODE_DELEGATE_USAGE_LOG` env var: when set, backend runners record per-run token usage (claude via `stream-json`, opencode via `--format json`) through `lib/usage_wrap.py`; unset means unchanged behaviour
 
+### Fixed
+- `bridge.sh` exited silently (status 1, no JSON line) whenever no model resolved, e.g. an opencode task relying on opencode's own default model: `resolve_model` returned a non-zero status under `set -e`
+- `bridge.sh` stall detection never fired: the watcher's own 60-second "Waiting: no output" heartbeat grew the agent log, which reset the stall timer, so silent agents ran until the wall-clock `Timeout` (default 60 min) instead of being stopped after `StallTimeout`
+- opencode runner: parallel dispatches could fail immediately with `database is locked` (concurrent `opencode run` processes contending for opencode's local SQLite store); such fast failures are now retried up to 4 times with jittered backoff, and the watcher's SIGTERM is forwarded to opencode
+
 ### Removed
 - The TypeScript benchmark fixture and `tests/benchmark/run.sh`, replaced by the above
 
