@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 BRIDGE = PLUGIN_ROOT / "bin" / "bridge.sh"
-SERVER_INFO = {"name": "code-delegate", "version": "1.4.0"}
+SERVER_INFO = {"name": "code-delegate", "version": "2.0.0"}
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 DEFAULT_MAX_WAIT = 540  # under Claude Code's usual 10-minute ceiling for a single call
 DIFF_LINES = 300        # applied diff shown inline, so reviewing needs no extra file reads
