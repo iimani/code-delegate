@@ -2,78 +2,107 @@
 
 A cross-platform plugin that delegates token-heavy implementation tasks to local or cloud AI agents. Works with **Claude Code**, **Codex CLI**, and **OpenCode CLI**. Each task runs in an isolated Git worktree, enabling parallel dispatch of multiple subagents across different backends.
 
+## Requirements
+
+- `git` and `bash` (macOS, Linux, WSL or Git Bash)
+- `python3` 3.9+ (standard library only), used by the bundled MCP server and the hooks
+- At least one delegate backend: [OpenCode](https://opencode.ai) for local or self-hosted models, the `claude` CLI, or the Codex CLI
+
 ## Installation
 
-### From marketplace (recommended)
+### Claude Code (recommended)
 
 ```bash
-# Add the marketplace
 claude plugin marketplace add iimani/code-delegate
-
-# Install the plugin
-claude plugin install code-delegate
+claude plugin install code-delegate@code-delegate
 ```
 
-### Manual install (development)
+This installs the skills (`/code-delegate:*`), puts `bridge.sh` on the PATH of your Claude Code sessions, and
+starts the bundled MCP server that provides the `delegate` and `delegate_wait` tools. Nothing needs to be added
+to your `CLAUDE.md`.
+
+To update later:
 
 ```bash
-git clone https://github.com/iimani/code-delegate.git ~/.claude/skills/code-delegate
+claude plugin marketplace update code-delegate
+claude plugin update code-delegate@code-delegate
 ```
 
-Claude Code auto-discovers plugins from `~/.claude/skills/`.
-
-### Codex CLI
+### Claude Code from a local checkout (development)
 
 ```bash
 git clone https://github.com/iimani/code-delegate.git
-# Symlink skills into Codex's discovery path
-mkdir -p ~/.agents/skills
-for skill in code-delegate/skills/*/; do
-  ln -sf "$(pwd)/$skill" ~/.agents/skills/"$(basename "$skill")"
-done
+claude --plugin-dir ./code-delegate          # load it for one session
+# or install it from the checkout, like the published plugin:
+claude plugin marketplace add ./code-delegate && claude plugin install code-delegate@code-delegate
 ```
 
-Codex auto-discovers skills from `~/.agents/skills/`. The `AGENTS.md` at the repo root provides Codex-specific tool mappings.
+### Codex CLI and OpenCode CLI
 
-### OpenCode CLI
+These use the skills only; the `delegate` MCP tool is wired up for Claude Code.
 
 ```bash
-git clone https://github.com/iimani/code-delegate.git ~/.claude/skills/code-delegate
+git clone https://github.com/iimani/code-delegate.git
+cd code-delegate
+# Codex discovers skills in ~/.agents/skills, OpenCode in ~/.claude/skills: link each skill there
+for dir in ~/.agents/skills ~/.claude/skills; do
+  mkdir -p "$dir"
+  for skill in skills/*/; do ln -sfn "$(pwd)/$skill" "$dir/$(basename "$skill")"; done
+done
+# The skills call bridge.sh: put it on your PATH (add this to your shell profile)
+export PATH="$(pwd)/bin:$PATH"
 ```
 
-OpenCode has Claude Code compatibility and auto-discovers skills from `~/.claude/skills/`. It also reads the `AGENTS.md` file for project-level instructions.
+`AGENTS.md` at the repo root provides the Codex/OpenCode tool mappings.
 
-### Install backends (at least one)
+### Set up a delegate backend
 
-**OpenCode (local, free):**
+**OpenCode (local or self-hosted models, no Claude tokens):**
+
 ```bash
 curl -fsSL https://opencode.ai/install | bash
 ```
-Configure with LM Studio, Ollama, or any OpenAI-compatible server.
 
-The opencode backend ships with an empty `default_model` so a fresh install stays portable — when no `Model:` header is set, opencode falls back to whatever model is configured in your own `opencode.json`. To pin a personal default without editing the committed config, export a per-backend env var (machine-local, never committed):
+Configure a provider in `~/.config/opencode/opencode.json`: LM Studio, Ollama, or any OpenAI-compatible
+endpoint, such as a company's self-hosted AI platform. `opencode models` should then list your models; the
+model must support tool calling. See [how delegation works](docs/how-delegation-works.md#plugging-in-a-model-provider)
+for an example provider block.
 
-```bash
-export OPENCODE_DELEGATE_MODEL="ollama/qwen3.6:27b"
-```
-
-To make one backend your default (for example your local or company model server), also set `CODE_DELEGATE_BACKEND`:
+Then choose your defaults once, on your machine (these are never committed):
 
 ```bash
-export CODE_DELEGATE_BACKEND=opencode
+export CODE_DELEGATE_BACKEND=opencode                 # backend for tasks that don't name one
+export OPENCODE_DELEGATE_MODEL="ollama/qwen3-coder:30b"  # model for that backend (any name from `opencode models`)
 ```
 
-It applies whenever a task file leaves `Backend:` empty or `auto`; an explicit `Backend:` header always wins.
+- `CODE_DELEGATE_BACKEND` applies whenever a task leaves `Backend:` empty or `auto`; an explicit `Backend:` always wins.
+- `<BACKEND>_DELEGATE_MODEL` works for every backend (`CLAUDE_DELEGATE_MODEL`, `CODEX_DELEGATE_MODEL`).
+  Precedence, highest first: `Model:` in the task → `<BACKEND>_DELEGATE_MODEL` → `default_model` in the
+  backend's `config.yaml` → the CLI's own default. The opencode backend ships with no default model, so without
+  either setting opencode uses the model configured in your `opencode.json`.
 
-The `<BACKEND>_DELEGATE_MODEL` pattern works for every backend, not just opencode — `CLAUDE_DELEGATE_MODEL` and `CODEX_DELEGATE_MODEL` are resolved the same way. Precedence (highest first): `Model:` task header → `<BACKEND>_DELEGATE_MODEL` env var → config `default_model` → the CLI's own default.
-
-**Claude Code CLI (already installed if you're reading this):**
-The `claude` CLI is the Claude backend — no extra setup needed. If your Claude access goes through Bedrock or Vertex rather than the API console, configure the `claude` CLI itself for that (e.g. `CLAUDE_CODE_USE_BEDROCK=1` plus AWS credentials) — the bridge just shells out to whatever `claude` resolves to. Note that Bedrock/Vertex model IDs (e.g. `anthropic.claude-sonnet-...`) don't match the `haiku`/`sonnet`/`opus` aliases in `backends/claude/config.yaml`; edit that file's `models:` list to match your deployment's IDs, or pass the full ID via the task file's `Model:` header.
+**Claude Code CLI:** the `claude` CLI is the Claude backend; no extra setup. If your Claude access goes through
+Bedrock or Vertex, configure the `claude` CLI for that (e.g. `CLAUDE_CODE_USE_BEDROCK=1` plus AWS credentials).
+Bedrock/Vertex model IDs (e.g. `anthropic.claude-sonnet-...`) don't match the `haiku`/`sonnet`/`opus` aliases in
+`backends/claude/config.yaml`; edit that file's `models:` list or pass the full ID as `Model:`.
 
 **Codex CLI:**
+
 ```bash
 npm install -g @openai/codex
 ```
+
+### Check the setup
+
+In a Claude Code session, run `/code-delegate:backends` (or `bridge.sh --backends` in a terminal). It lists each
+backend and whether it is usable right now; for opencode, that means a model is actually reachable.
+
+### Upgrading from 1.x
+
+- The bridge's stall watchdog now works: a delegate that produces no output for `StallTimeout` seconds
+  (default 300) is stopped. Previously, stuck agents ran until the 60-minute `Timeout`. For slow models, set
+  `StallTimeout:` in the task file.
+- The plugin now starts an MCP server (`python3`) for the `delegate` tool.
 
 ## Backends
 
@@ -86,6 +115,10 @@ npm install -g @openai/codex
 The bridge auto-selects the best available backend based on task complexity, or you can specify one explicitly via the `Backend:` header.
 
 ## How It Works
+
+The `delegate` tool and the `/code-delegate:*` skills both drive `bin/bridge.sh`; the tool uses its one-step
+`bridge.sh run` mode (parallel tasks, fix round, apply uncommitted). The full flow is described in
+[how delegation works](docs/how-delegation-works.md).
 
 ```
 Claude Code (orchestrator)      bridge.sh              Backend (opencode/claude/codex)
@@ -117,11 +150,29 @@ Review git diff
 
 ## Usage
 
-### Slash commands
+### Just ask (the `delegate` tool)
+
+With the plugin installed, Claude Code has a `delegate` tool. Ask for the work as usual; for large,
+well-specified work Claude hands it off in a single call:
+
+> "Add a suppliers resource across all layers, following the customers implementation."
+
+The tool takes a list of tasks (`name`, `objective`, `requirements`, a one-line `test` command, optional
+`files`, `backend`, `model`). It writes the task files, runs them in parallel in isolated git worktrees, gives each
+one automatic fix round if its test fails, and applies passing work to your working tree **uncommitted**, so you
+review and commit it as usual. It returns a short report with the applied diff. `delegate_wait` keeps waiting for
+tasks that take longer than about 9 minutes.
+
+When it's worth delegating: every step the orchestrator takes re-sends its whole context, so a hand-off only
+pays off for work that would take it many steps (multi-file features, migrations, test suites, bulk
+boilerplate). The tool's description tells Claude this, so small changes are done directly. See the
+[benchmark results](docs/benchmark-methodology.md) for the measurements behind this.
+
+### Slash commands (step by step, with approval)
 
 | Command | Description |
 |---------|-------------|
-| `/code-delegate` | Main command — bundled plan + distribute + dispatch in one step |
+| `/code-delegate:delegate` | Plan, distribute and dispatch in one go, with a distribution summary you approve |
 | `/code-delegate:plan` | Break requirements into `.local_task_*.md` specs (no backend/model assignment) |
 | `/code-delegate:distribute` | Classify tasks and assign `Backend:`/`Model:` headers |
 | `/code-delegate:dispatch [slug...]` | Execute task files via `bridge.sh`, with monitoring and feedback loops |
@@ -156,48 +207,27 @@ Sub-skill relationship: `delegate` is a superset that chains `plan` → `distrib
 **Explicit backend + model:**
 > "Use the claude backend with opus to implement this complex type system."
 
-### Make it the default workflow
+### Delegating by default (optional)
 
-Add to your `~/.claude/CLAUDE.md`:
+To make Claude reach for the step-by-step flow whenever it implements something, add to your `~/.claude/CLAUDE.md`:
 
 ```markdown
 When you reach the implementation phase, invoke the `code-delegate:delegate` skill
 instead of writing code yourself. Invoke via: Skill tool → skill: "code-delegate:delegate"
 ```
 
-### `delegate` tool (lowest overhead)
-
-The plugin ships an MCP server (declared in `.claude-plugin/plugin.json` → `mcp/server.py`, Python standard library only) with two
-tools, available as soon as the plugin is installed:
-
-- **`delegate`**: takes a list of tasks (`name`, `objective`, `requirements`, one-line `test`, optional
-  `files`, `backend`, `model`), writes the task files, runs `bridge.sh run` and returns the compact report.
-- **`delegate_wait`**: keeps waiting for tasks reported as `running`.
-
-The routing guidance (delegate only large work, don't read code to write requirements) is in the tool
-description, so no `CLAUDE.md` changes are needed. One tool call replaces the skill load and shell steps;
-the tools add about 2k tokens of context per orchestrator step. The server sets `alwaysLoad`, so Claude Code keeps the tool schemas loaded instead of deferring them behind a tool-search step, and the result includes the applied diff (up to 300 lines) so reviewing needs no extra file reads.
-
-### Fast path (low overhead)
-
-Every orchestrator step re-sends its whole context, so the full plan → distribute → dispatch → review → merge
-flow costs the orchestrator several steps per task, which is more than a small task saves (see
-`tests/benchmark`). The fast path keeps it to one dispatch step, and the `delegate` tool above is its entry
-point for Claude Code; it can also be run directly:
-
-`bridge.sh run <slug>...` starts the tasks in parallel, gives each one automatic fix round if its `Test:` gate
-fails, applies passing work to your working tree **uncommitted**, and prints a compact report (diffstat, or the
-failing test output). It returns after 9 minutes at most; `bridge.sh wait <slug>...` continues waiting.
+This delegates small tasks too, which costs more Claude tokens than doing them directly; most users don't need it.
 
 ## Features
 
+- **`delegate` tool** — one-call hand-off from Claude Code: parallel tasks, automatic fix round, applied uncommitted with the diff returned
 - **Multi-backend dispatch** — route tasks to local models (free) or cloud APIs (capable) based on complexity
 - **Auto-selection** — bridge picks the best available backend based on task files, cross-file needs, and cost tier. For backends with `models: dynamic` (opencode), "available" also means a model is actually loaded right now, not just that the CLI is installed — a dispatch or `Model:` header against an unavailable/unknown model fails fast with a suggestion instead of failing deep inside the backend
 - **Model escalation** — when a task fails, the bridge suggests the next model up (haiku → sonnet → opus) or a cross-backend fallback
 - **Tiered security** — security-sensitive tasks (auth, crypto, secrets) are blocked from local models but can be delegated to approved combos like `claude/opus`
 - **Parallel execution** — dispatch multiple tasks simultaneously, each in its own Git worktree
 - **Test gates** — optional test commands that must pass before a task is considered done
-- **Watcher** — kills stalled or doom-looping agents (timeout, stall detection, failure loop counting)
+- **Watcher** — stops stalled or doom-looping agents (wall-clock timeout, no-output stall timeout, failure-loop counting)
 
 ## Benchmarks
 
@@ -253,15 +283,16 @@ One sentence.
 - Explicit boundaries
 ```
 
-**Headers:** `Branch:` (required), `Backend:` (optional, default: auto), `Model:` (optional), `Test:` (optional), `Files:` (optional), `Timeout:` (optional, default: 3600), `MaxFails:` (optional, default: 8), `FailPattern:` (optional).
+**Headers:** `Branch:` (required), `Backend:` (optional, default: auto), `Model:` (optional), `Test:` (optional; required by `bridge.sh run` and the `delegate` tool, one line), `Files:` (optional), `Timeout:` (seconds, default 3600), `StallTimeout:` (seconds without output, default 300), `MaxFails:` (default 8), `FailPattern:` (optional).
 
 ## Project Structure
 
 ```
 code-delegate/
 ├── .claude-plugin/
-│   ├── plugin.json              # Plugin manifest
-│   └── marketplace.json         # Marketplace index
+│   ├── plugin.json              # Plugin manifest (also declares the MCP server)
+│   ├── marketplace.json         # Marketplace index
+│   └── hooks/                   # Optional hooks and their installer
 ├── skills/
 │   ├── delegate/SKILL.md        # Bundled skill: plan + distribute + dispatch
 │   ├── plan/SKILL.md            # code-delegate:plan
@@ -281,12 +312,20 @@ code-delegate/
 │       ├── run.sh
 │       └── config.yaml
 ├── bin/
-│   └── bridge.sh                # Backend-agnostic dispatcher
+│   ├── bridge.sh                # Backend-agnostic dispatcher
+│   └── bridge-run.sh            # Fast path: bridge.sh run / wait
+├── mcp/
+│   └── server.py                # delegate / delegate_wait MCP tools (stdlib only)
+├── lib/
+│   └── usage_wrap.py            # Opt-in token accounting for backend runners (benchmark)
+├── docs/                        # How delegation works, benchmark methodology, backend authoring
 ├── CLAUDE.md                    # Claude Code instructions
 ├── AGENTS.md                    # Codex/OpenCode instructions + tool mappings
 └── tests/
+    ├── bridge/                  # Fast-path tests with a fake backend
+    ├── mcp/                     # MCP tool tests
     ├── workflow/                # Behavioral validation scenarios (does it classify/route correctly?)
-    └── benchmark/                # Claude tokens with vs. without delegation, scored by hidden tests
+    └── benchmark/               # Claude tokens with vs. without delegation, scored by hidden tests
 ```
 
 ## License
