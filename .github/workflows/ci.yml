@@ -20,13 +20,13 @@ jobs:
       - name: Shellcheck all scripts
         run: |
           shopt -s globstar nullglob
-          files=(bin/*.sh backends/**/*.sh .claude-plugin/hooks/*.sh tests/workflow/run.sh tests/bridge/run.sh tests/benchmark/bench.sh tests/benchmark/lib/dryrun/fake-backend/run.sh)
+          files=(bin/*.sh backends/**/*.sh hooks/*.sh tests/workflow/run.sh tests/bridge/run.sh tests/hooks/run.sh tests/benchmark/bench.sh tests/benchmark/lib/dryrun/fake-backend/run.sh)
           echo "Checking: ${files[*]}"
           shellcheck -S warning "${files[@]}"
 
       - name: Validate JSON manifests
         run: |
-          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json .claude-plugin/hooks/hooks.json .codex-plugin/plugin.json; do
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json .codex-plugin/plugin.json; do
             echo "Validating $f"
             python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f"
           done
@@ -73,6 +73,8 @@ jobs:
           git config --global user.email ci@localhost
           git config --global user.name ci
           tests/bridge/run.sh
+      - name: Run hook tests
+        run: tests/hooks/run.sh
       - name: Run MCP delegate tool tests
         run: python3 -m unittest discover -s tests/mcp -p 'test_*.py' -v
 

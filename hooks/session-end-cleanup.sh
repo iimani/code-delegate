@@ -18,6 +18,7 @@ if [[ -z "$GIT_ROOT" ]]; then
   exit 0
 fi
 
+cd "$GIT_ROOT" || exit 0   # bridge.sh --cleanup resolves worktree paths from the repo root
 AGENTS_DIR="$GIT_ROOT/.git/worktrees_agents"
 if [[ ! -d "$AGENTS_DIR" ]]; then
   exit 0
@@ -33,7 +34,11 @@ fi
 
 STALE_HOURS=8
 NOW=$(date +%s)
-MERGED_BRANCHES=$(git -C "$GIT_ROOT" branch --merged main 2>/dev/null || true)
+# Branches merged into the current branch or main. Strip git's markers: "* " for the
+# current branch and "+ " for branches checked out in another worktree (every delegate
+# branch is), otherwise no delegate branch would ever match.
+MERGED_BRANCHES=$( { git -C "$GIT_ROOT" branch --merged HEAD 2>/dev/null; git -C "$GIT_ROOT" branch --merged main 2>/dev/null; } \
+  | sed 's/^[*+ ] //; s/^ *//' | sort -u || true)
 
 for dir in "${dirs[@]}"; do
   [[ -d "$dir" ]] || continue
@@ -59,18 +64,26 @@ for dir in "${dirs[@]}"; do
 
   merged=false
   if [[ -n "$branch" && "$branch" != "unknown" ]]; then
-    if echo "$MERGED_BRANCHES" | grep -qxF "  $branch"; then
+    if echo "$MERGED_BRANCHES" | grep -qxF "$branch"; then
       merged=true
     fi
   fi
 
-  if $stale && { $merged || (( log_age > 24 * 3600 )); }; then
-    echo "[code-delegate] Cleaning up stale worktree: $slug (branch: $branch)" >&2
+  # Work that isn't in a merged commit (uncommitted edits, untracked files) is never
+  # removed: failed fast-path tasks keep their worktree for the user to finish, and some
+  # delegate models never commit. Bridge bookkeeping files don't count.
+  dirty=$(git -C "$dir" status --porcelain 2>/dev/null | cut -c4- \
+    | grep -vE '^(.*/)?(agent\.log|\.bridge_[a-z]+|\.local_(task|feedback)\.md)$' || true)
+
+  if $stale && $merged && [[ -z "$dirty" ]]; then
+    echo "[code-delegate] Removing merged, idle worktree: $slug (branch: $branch)" >&2
     if [[ -n "$BRIDGE_CMD" ]]; then
       "$BRIDGE_CMD" --cleanup "$slug" >/dev/null 2>&1 || true
     fi
   elif $stale; then
-    echo "[code-delegate] Stale worktree (no recent activity): $slug -> $branch" >&2
+    reason="not merged"
+    $merged && reason="has uncommitted changes"
+    echo "[code-delegate] Idle worktree kept ($reason): $slug -> $branch (remove with: bridge.sh --cleanup $slug)" >&2
   else
     echo "[code-delegate] Active worktree: $slug -> $branch" >&2
   fi
