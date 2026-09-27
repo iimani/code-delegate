@@ -1,7 +1,7 @@
 # Fast-path delegation — design
 
 Date: 2026-09-26
-Status: approved in brainstorming
+Status: implemented; the `code-delegate:fast` skill was later replaced by the `delegate` MCP tool (same `bridge.sh run` engine)
 Branch: `feature/fast-path-delegation` (based on `fix/bridge-stall-and-opencode-lock`)
 
 ## Problem

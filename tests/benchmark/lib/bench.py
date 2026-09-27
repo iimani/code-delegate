@@ -212,6 +212,9 @@ class Config:
         self.skip_probes = bool(getattr(args, "skip_probes", False))
         self.include_no_tools = bool(getattr(args, "include_no_tools", False))
         self.skip_baseline = bool(getattr(args, "skip_baseline", False))
+        # Label appended to target names (claude:sonnet@fast) so runs of different plugin
+        # versions/directives stay separate when reports are merged.
+        self.variant = pick(getattr(args, "variant", None), "BENCH_VARIANT", "")
         wait = pick(True if getattr(args, "wait_on_limit", False) else None, "BENCH_WAIT_ON_LIMIT", "")
         self.wait_on_limit = str(wait).lower() in ("1", "true", "yes")
         self.tier = pick(getattr(args, "tier", None), "BENCH_TIER", "small")
@@ -541,8 +544,24 @@ def claude_cmd(cfg: Config, isolation: Isolation, prompt: str, with_plugin: Opti
         cmd += ["--model", cfg.orchestrator_model]
     if with_plugin is not None:
         cmd += ["--plugin-dir", str(with_plugin), "--append-system-prompt-file", str(cfg.directive_file)]
+        mcp_config = plugin_mcp_config(with_plugin)
+        if mcp_config:
+            # --strict-mcp-config (isolation) also hides the plugin's own MCP servers;
+            # pass them explicitly, as installing the plugin would. The option takes
+            # several values, so it goes right after the binary, where the next flag ends it.
+            cmd[len(base):len(base)] = ["--mcp-config", str(mcp_config)]
     cmd.append(prompt)
     return cmd
+
+
+def plugin_mcp_config(plugin: Path) -> Optional[Path]:
+    """The plugin's .mcp.json with ${CLAUDE_PLUGIN_ROOT} resolved, or None if it has none."""
+    source = plugin / ".mcp.json"
+    if not source.exists():
+        return None
+    resolved = Path(tempfile.gettempdir()) / ("code-delegate-bench-mcp-%s.json" % safe_name(str(plugin)))
+    resolved.write_text(source.read_text().replace("${CLAUDE_PLUGIN_ROOT}", str(plugin)))
+    return resolved
 
 
 def claude_probe(cfg: Config, isolation: Isolation, prompt: str, plugin: Optional[Path],
@@ -632,6 +651,14 @@ class Doctor:
                 continue
             iso = Isolation(mode)
             probe = claude_probe(cfg, iso, LEAK_PROBE, None, scratch)
+            if probe["ok"] and probe["answer"] != "NO":
+                # The probe is a self-report and occasionally answers YES by mistake;
+                # decide by majority over three answers before failing.
+                answers = [probe["answer"]] + [claude_probe(cfg, iso, LEAK_PROBE, None, scratch)["answer"]
+                                               for _ in range(2)]
+                if answers.count("NO") >= 2:
+                    probe["answer"] = "NO"
+                    self.warn("%s: leak probe answers %s; majority NO, continuing" % (mode, answers))
             if not probe["ok"]:
                 self.warn("%s: claude call failed: %s" % (mode, probe["error"] or "unknown error"))
                 continue
@@ -873,7 +900,7 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
     record = {
         "mode": "compare", "task": task.slug, "task_class": task.task_class,
         "expected_route": task.expected_route, "rep": rep, "condition": condition,
-        "model_under_test": model, "orchestrator_model": cfg.orchestrator_model or "cli-default",
+        "model_under_test": label_target(cfg, model) if model else None, "variant": cfg.variant or None, "orchestrator_model": cfg.orchestrator_model or "cli-default",
         "orchestrator_models_seen": orch["models"], "orchestrator_phases": orch_phases,
         "raw_label": label,
         "claude": {"orchestrator": orch, "delegate": deleg_claude},
@@ -895,6 +922,10 @@ def compare_run(cfg: Config, task: Task, condition: str, model: Optional[str], r
     if not cfg.keep:
         shutil.rmtree(repo, ignore_errors=True)
     return record
+
+
+def label_target(cfg: Config, target: str) -> str:
+    return "%s@%s" % (target, cfg.variant) if cfg.variant else target
 
 
 def cmd_compare(cfg: Config) -> int:
@@ -1089,7 +1120,8 @@ def environment_block(cfg: Config, doctor: Doctor, mode: str, tasks: List[Task])
         "code_delegate_branch": branch,
         "isolation": doctor.isolation.mode if doctor.isolation else None,
         "orchestrator_model": cfg.orchestrator_model or "cli-default",
-        "models": doctor.models, "model_notes": doctor.model_notes,
+        "models": [label_target(cfg, m) for m in doctor.models], "variant": cfg.variant or None,
+        "model_notes": doctor.model_notes,
         "excluded_models": getattr(doctor, "excluded", {}), "reps": cfg.reps,
         "backend_pinned": None if mode == "scorecard" else (
             "fake" if cfg.dry_run else (None if cfg.allow_claude_delegate else "per target")),
@@ -1189,6 +1221,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="don't pin Backend to opencode; let bridge auto-route (may use Claude)")
     p.add_argument("--include-no-tools", action="store_true",
                    help="also compare models that failed doctor's tool-call probe")
+    p.add_argument("--variant", help="label appended to target names, e.g. fast (env BENCH_VARIANT)")
     p.add_argument("--skip-baseline", action="store_true",
                    help="only with-delegation runs; merge with an earlier run's baseline via `report`")
     p = sub.add_parser("scorecard", help="delegate-only quality through bridge.sh")

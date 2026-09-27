@@ -1,6 +1,6 @@
 #!/bin/bash
 # code-delegate/bin/bridge-run.sh
-# Fast path, invoked as `bridge.sh run|wait` (see skills/fast/SKILL.md):
+# Fast path, invoked as `bridge.sh run|wait`; the `delegate` MCP tool (mcp/server.py) calls it:
 #
 #   bridge.sh run  <slug>... [--max-wait S]   start tasks in parallel, wait, report
 #   bridge.sh wait <slug>... [--max-wait S]   keep waiting for tasks started by `run`

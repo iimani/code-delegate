@@ -182,12 +182,8 @@ the tools add about 2k tokens of context per orchestrator step. The server sets 
 
 Every orchestrator step re-sends its whole context, so the full plan → distribute → dispatch → review → merge
 flow costs the orchestrator several steps per task, which is more than a small task saves (see
-`tests/benchmark`). The fast path keeps it to one dispatch step:
-
-```markdown
-For large, well-specified work (multi-file features, migrations, test suites), use the
-`code-delegate:fast` skill. Implement small changes directly.
-```
+`tests/benchmark`). The fast path keeps it to one dispatch step, and the `delegate` tool above is its entry
+point for Claude Code; it can also be run directly:
 
 `bridge.sh run <slug>...` starts the tasks in parallel, gives each one automatic fix round if its `Test:` gate
 fails, applies passing work to your working tree **uncommitted**, and prints a compact report (diffstat, or the
