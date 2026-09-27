@@ -1,0 +1,1 @@
+This is a non-interactive session: nobody will answer questions or approve steps. If you use the `delegate` tool and it reports tasks as `running`, call `delegate_wait` with their names until they finish.
