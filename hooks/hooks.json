@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-backends.sh\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-backends.sh\"",
             "timeout": 10
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-bridge-validate.sh\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/pre-bridge-validate.sh\"",
             "timeout": 10
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-end-cleanup.sh\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-end-cleanup.sh\"",
             "timeout": 30
           }
         ]

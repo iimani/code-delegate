@@ -241,9 +241,14 @@ to check it.
 
 ## Hooks
 
-`.claude-plugin/hooks/` contains optional hooks (`install.sh` adds them to your settings):
+The plugin ships three hooks in `hooks/hooks.json`, loaded automatically when the plugin is installed:
 
-- on session start, print backend availability;
-- before any Bash call to `bridge.sh <slug>`, block it if the task file lacks `Branch:`;
-- on stop, list agent worktrees, and remove ones idle for more than 8 hours whose branch is
-  merged into `main` (or idle for more than 24 hours).
+- **SessionStart:** prints backend availability (`bridge.sh --backends`) to the debug log.
+- **PreToolUse (Bash):** blocks `bridge.sh <slug>` when the task file has no `Branch:` header.
+- **Stop:** lists agent worktrees, and removes one only if it has been idle for more than 8 hours, its branch is
+  merged into the current branch or `main`, and it has no uncommitted or untracked changes. Anything else is
+  kept and reported with the reason, so a failed fast-path task's unfinished work is never deleted.
+
+`hooks/install.sh` adds the same hooks to your Claude Code settings for setups that don't load the plugin
+itself; `hooks/uninstall.sh` removes them. If you ran `install.sh` with version 1.x, run `uninstall.sh` once,
+otherwise the hooks run twice.

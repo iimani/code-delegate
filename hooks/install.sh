@@ -54,13 +54,13 @@ h = settings["hooks"]
 
 # SessionStart
 h.setdefault("SessionStart", [])
-ss_cmd = f'bash "{hooks_dir}/session-start-backends.sh"'
+ss_cmd = f'"{hooks_dir}/session-start-backends.sh"'
 if not any("code-delegate" in hk.get("command", "") for e in h["SessionStart"] for hk in e.get("hooks", [])):
     h["SessionStart"].append({"hooks": [{"type": "command", "command": ss_cmd, "timeout": 10}]})
 
 # PreToolUse
 h.setdefault("PreToolUse", [])
-ptu_cmd = f'bash "{hooks_dir}/pre-bridge-validate.sh"'
+ptu_cmd = f'"{hooks_dir}/pre-bridge-validate.sh"'
 if not any(
     e.get("matcher") == "Bash" and "code-delegate" in hk.get("command", "")
     for e in h["PreToolUse"]
@@ -70,7 +70,7 @@ if not any(
 
 # Stop
 h.setdefault("Stop", [])
-stop_cmd = f'bash "{hooks_dir}/session-end-cleanup.sh"'
+stop_cmd = f'"{hooks_dir}/session-end-cleanup.sh"'
 if not any("code-delegate" in hk.get("command", "") for e in h["Stop"] for hk in e.get("hooks", [])):
     h["Stop"].append({"hooks": [{"type": "command", "command": stop_cmd, "timeout": 30}]})
 

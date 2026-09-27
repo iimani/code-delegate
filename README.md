@@ -103,6 +103,8 @@ backend and whether it is usable right now; for opencode, that means a model is 
   (default 300) is stopped. Previously, stuck agents ran until the 60-minute `Timeout`. For slow models, set
   `StallTimeout:` in the task file.
 - The plugin now starts an MCP server (`python3`) for the `delegate` tool.
+- The plugin's hooks now load automatically (from 2.0.2). If you ran `hooks/install.sh` (formerly
+  `.claude-plugin/hooks/install.sh`) with 1.x, run `hooks/uninstall.sh` once so they don't run twice.
 
 ## Backends
 
@@ -291,8 +293,8 @@ One sentence.
 code-delegate/
 ├── .claude-plugin/
 │   ├── plugin.json              # Plugin manifest (also declares the MCP server)
-│   ├── marketplace.json         # Marketplace index
-│   └── hooks/                   # Optional hooks and their installer
+│   └── marketplace.json         # Marketplace index
+├── hooks/                       # SessionStart / PreToolUse / Stop hooks (loaded by the plugin)
 ├── skills/
 │   ├── delegate/SKILL.md        # Bundled skill: plan + distribute + dispatch
 │   ├── plan/SKILL.md            # code-delegate:plan
@@ -323,6 +325,7 @@ code-delegate/
 ├── AGENTS.md                    # Codex/OpenCode instructions + tool mappings
 └── tests/
     ├── bridge/                  # Fast-path tests with a fake backend
+    ├── hooks/                   # Worktree cleanup hook tests
     ├── mcp/                     # MCP tool tests
     ├── workflow/                # Behavioral validation scenarios (does it classify/route correctly?)
     └── benchmark/               # Claude tokens with vs. without delegation, scored by hidden tests
