@@ -18,7 +18,6 @@ else
 fi
 PASSED=0
 FAILED=0
-FAILURES=()
 
 # --- fixtures ---
 
