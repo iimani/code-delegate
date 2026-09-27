@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-27
+
+First release since 1.2.0: version 1.3.0 below was never tagged, so its changes ship with this release too.
+
+**Behaviour changes to be aware of**
+- The bridge's stall watchdog now actually fires: an agent that writes no output for `StallTimeout` seconds (default 300) is stopped. Previously, stuck agents ran until the 60-minute wall-clock `Timeout`. Set `StallTimeout:` in the task file for slow models.
+- Installing the plugin starts a small MCP server (`python3`, standard library only) that provides the `delegate` and `delegate_wait` tools.
+
 ### Added
 - MCP server bundled with the plugin (`.mcp.json`, `mcp/server.py`, stdlib only) exposing `delegate` and `delegate_wait`: one tool call writes the task files, runs the fast path and returns the compact report; routing guidance lives in the tool description, so it reaches every installation without `CLAUDE.md` edits
 - Fast-path delegation: `bridge.sh run <slug>...` starts tasks in parallel, gives each one automatic fix round when its test gate fails, applies passing work to the working tree uncommitted, and prints a compact report (diffstat, or the failing test output); `bridge.sh wait` resumes after the 9-minute `--max-wait`. It is the engine behind the `delegate` MCP tool. Motivated by benchmark evidence that the multi-step flow costs ~200k orchestrator tokens per task
