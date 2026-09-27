@@ -555,12 +555,25 @@ def claude_cmd(cfg: Config, isolation: Isolation, prompt: str, with_plugin: Opti
 
 
 def plugin_mcp_config(plugin: Path) -> Optional[Path]:
-    """The plugin's .mcp.json with ${CLAUDE_PLUGIN_ROOT} resolved, or None if it has none."""
-    source = plugin / ".mcp.json"
-    if not source.exists():
+    """The plugin's MCP servers as an --mcp-config file with ${CLAUDE_PLUGIN_ROOT} resolved.
+
+    Read from .claude-plugin/plugin.json (`mcpServers`), falling back to a root .mcp.json
+    (plugin versions before 2.0.1). None if the plugin declares no MCP servers.
+    """
+    servers = None
+    manifest = plugin / ".claude-plugin" / "plugin.json"
+    if manifest.exists():
+        try:
+            servers = json.loads(manifest.read_text()).get("mcpServers")
+        except ValueError:
+            servers = None
+    if not servers and (plugin / ".mcp.json").exists():
+        servers = json.loads((plugin / ".mcp.json").read_text()).get("mcpServers")
+    if not servers:
         return None
+    text = json.dumps({"mcpServers": servers}).replace("${CLAUDE_PLUGIN_ROOT}", str(plugin))
     resolved = Path(tempfile.gettempdir()) / ("code-delegate-bench-mcp-%s.json" % safe_name(str(plugin)))
-    resolved.write_text(source.read_text().replace("${CLAUDE_PLUGIN_ROOT}", str(plugin)))
+    resolved.write_text(text)
     return resolved
 
 

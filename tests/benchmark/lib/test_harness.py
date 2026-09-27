@@ -202,6 +202,25 @@ class UsageLimitTests(unittest.TestCase):
         self.assertEqual(bench.classify_exit(False, True, False, [], limited=True), "usage_limit")
 
 
+class PluginMcpConfigTests(unittest.TestCase):
+    def test_reads_plugin_manifest_and_resolves_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = Path(tmp) / "plugin"
+            (plugin / ".claude-plugin").mkdir(parents=True)
+            (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "x", "mcpServers": {
+                "s": {"command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.py"], "alwaysLoad": True}}}))
+            data = json.loads(bench.plugin_mcp_config(plugin).read_text())
+        self.assertEqual(data["mcpServers"]["s"]["args"], [str(plugin) + "/mcp/server.py"])
+        self.assertTrue(data["mcpServers"]["s"]["alwaysLoad"])
+
+    def test_legacy_root_mcp_json_and_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = Path(tmp)
+            self.assertIsNone(bench.plugin_mcp_config(plugin))
+            (plugin / ".mcp.json").write_text(json.dumps({"mcpServers": {"s": {"command": "x"}}}))
+            self.assertEqual(json.loads(bench.plugin_mcp_config(plugin).read_text())["mcpServers"]["s"]["command"], "x")
+
+
 class TaskSelectionTests(unittest.TestCase):
     def _slugs(self, tasks=(), tier="small"):
         import argparse

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The MCP server is now declared in `.claude-plugin/plugin.json` (`mcpServers`) instead of a root `.mcp.json`. Claude Code also reads a root `.mcp.json` as the *project's* MCP config, so anyone with this repository open got a failing `code-delegate` server (`${CLAUDE_PLUGIN_ROOT}` is unset outside the plugin context). Installed plugins are unaffected either way
+
 ## [2.0.0] - 2026-09-27
 
 First release since 1.2.0: version 1.3.0 below was never tagged, so its changes ship with this release too.

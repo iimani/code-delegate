@@ -167,7 +167,7 @@ instead of writing code yourself. Invoke via: Skill tool → skill: "code-delega
 
 ### `delegate` tool (lowest overhead)
 
-The plugin ships an MCP server (`.mcp.json` → `mcp/server.py`, Python standard library only) with two
+The plugin ships an MCP server (declared in `.claude-plugin/plugin.json` → `mcp/server.py`, Python standard library only) with two
 tools, available as soon as the plugin is installed:
 
 - **`delegate`**: takes a list of tasks (`name`, `objective`, `requirements`, one-line `test`, optional
